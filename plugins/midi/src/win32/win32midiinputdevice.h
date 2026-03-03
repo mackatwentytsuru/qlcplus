@@ -39,11 +39,19 @@ public:
 
     bool processMBC(int type);
 
+    // Allow callback to access m_handle for SysEx buffer re-add
+    friend void CALLBACK MidiInProc(HMIDIIN, UINT, DWORD_PTR, DWORD_PTR, DWORD_PTR);
+
 private:
     UINT m_id;
     HMIDIIN m_handle;
     QByteArray m_universe;
     uint m_mbc_counter;
+
+    // SysEx receive buffer for Mackie Control handshake
+    static const int SYSEX_BUFFER_SIZE = 256;
+    char m_sysExBuffer[SYSEX_BUFFER_SIZE];
+    MIDIHDR m_sysExHeader;
 };
 
 #endif

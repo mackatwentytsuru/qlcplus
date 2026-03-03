@@ -35,6 +35,8 @@ target_sources(${module_name} PRIVATE
     ../common/${module_name}.cpp ../common/${module_name}.h
     ../common/midiprotocol.cpp ../common/midiprotocol.h
     ../common/miditemplate.cpp ../common/miditemplate.h
+    ../common/mackiecontrolprotocol.cpp ../common/mackiecontrolprotocol.h
+    ../common/mackiecontrolhandler.cpp ../common/mackiecontrolhandler.h
     win32midienumerator.cpp
     win32midienumeratorprivate.h
     win32midiinputdevice.cpp win32midiinputdevice.h

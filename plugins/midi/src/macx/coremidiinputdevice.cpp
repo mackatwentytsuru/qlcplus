@@ -20,6 +20,7 @@
 #include <QDebug>
 
 #include "coremidiinputdevice.h"
+#include "mackiecontrolprotocol.h"
 #include "midiprotocol.h"
 
 /****************************************************************************
@@ -53,7 +54,22 @@ static void MidiInProc(const MIDIPacketList* pktList, void* readProcRefCon,
             if (!MIDI_IS_CMD(cmd))
                 continue; // Not a MIDI command. Skip to the next byte.
             if (cmd == MIDI_SYSEX)
-                break; // Sysex reserves the whole packet. Not interested.
+            {
+                // In Mackie Control mode, extract SysEx for handshake
+                if (self->mode() == MidiDevice::MackieControl)
+                {
+                    QByteArray sysex;
+                    for (quint32 j = i; j < packet->length; j++)
+                    {
+                        sysex.append((char)packet->data[j]);
+                        if (packet->data[j] == 0xF7)
+                            break;
+                    }
+                    if (!sysex.isEmpty())
+                        self->emitSysExReceived(sysex);
+                }
+                break; // Sysex reserves the rest of the packet.
+            }
 
             // 1 or 2 MIDI Data bytes
             if (packet->length > (i + 1) && !MIDI_IS_CMD(packet->data[i + 1]))
@@ -74,8 +90,13 @@ static void MidiInProc(const MIDIPacketList* pktList, void* readProcRefCon,
             }
 
             // Convert the data to QLC input channel & value
-            if (QLCMIDIProtocol::midiToInput(cmd, data1, data2, self->midiChannel(),
-                                             &channel, &value) == true)
+            bool parsed = false;
+            if (self->mode() == MidiDevice::MackieControl)
+                parsed = MackieControlProtocol::mackieToInput(cmd, data1, data2, &channel, &value);
+            else
+                parsed = QLCMIDIProtocol::midiToInput(cmd, data1, data2, self->midiChannel(),
+                                                       &channel, &value);
+            if (parsed == true)
             {
                 self->emitValueChanged(channel, value);
                 // for MIDI beat clock signals,

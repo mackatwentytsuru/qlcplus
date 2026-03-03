@@ -205,11 +205,14 @@ QWidget* ConfigureMidiPlugin::createModeWidget(MidiDevice::Mode mode)
     combo->addItem(MidiDevice::modeToString(MidiDevice::Note), MidiDevice::Note);
     combo->addItem(MidiDevice::modeToString(MidiDevice::ControlChange), MidiDevice::ControlChange);
     combo->addItem(MidiDevice::modeToString(MidiDevice::ProgramChange), MidiDevice::ProgramChange);
+    combo->addItem(MidiDevice::modeToString(MidiDevice::MackieControl), MidiDevice::MackieControl);
 
     if (mode == MidiDevice::ControlChange)
         combo->setCurrentIndex(1);
     else if (mode == MidiDevice::ProgramChange)
         combo->setCurrentIndex(2);
+    else if (mode == MidiDevice::MackieControl)
+        combo->setCurrentIndex(3);
     else
         combo->setCurrentIndex(0);
 
