@@ -195,7 +195,8 @@ bool MackieControlProtocol::feedbackToMackie(quint32 channel, uchar value,
 quint32 MackieControlProtocol::noteToChannel(uchar note)
 {
     // Per-channel buttons (8 per group)
-    if (note >= MCU_NOTE_REC_BASE && note < MCU_NOTE_REC_BASE + 8)
+    // MCU_NOTE_REC_BASE is 0x00, so just check the upper bound
+    if (note < MCU_NOTE_REC_BASE + 8)
         return MACKIE_REC_OFFSET + (note - MCU_NOTE_REC_BASE);
 
     if (note >= MCU_NOTE_SOLO_BASE && note < MCU_NOTE_SOLO_BASE + 8)

@@ -1,6 +1,6 @@
 /*
   Q Light Controller Plus
-  midi_test.cpp
+  midi_test.h
 
   Copyright (c) Jano Svitok
 
@@ -28,6 +28,29 @@ class Midi_Test final : public QObject
 
 private slots:
     void midiToInput();
+
+    // Mackie Control Protocol: Input conversion
+    void mackieToInput_faders();
+    void mackieToInput_buttons();
+    void mackieToInput_vpots();
+    void mackieToInput_jogWheel();
+    void mackieToInput_vuMeters();
+
+    // Mackie Control Protocol: Feedback conversion
+    void feedbackToMackie_faders();
+    void feedbackToMackie_buttons();
+    void feedbackToMackie_vpotLeds();
+    void feedbackToMackie_vuMeters();
+    void feedbackToMackie_7segment();
+
+    // Mackie Control Protocol: Mapping consistency
+    void noteToChannel_roundTrip();
+
+    // Mackie Control Protocol: VPot LED encoding
+    void encodeVPotLed();
+
+    // Mackie Control Protocol: Handshake algorithm
+    void challengeResponseAlgorithm();
 };
 
 #endif

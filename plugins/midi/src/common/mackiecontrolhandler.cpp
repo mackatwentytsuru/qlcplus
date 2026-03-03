@@ -168,7 +168,7 @@ void MackieControlHandler::computeChallengeResponse(const uchar challenge[4], uc
     // Mackie Control challenge/response algorithm
     response[0] = 0x7F & (challenge[0] + (challenge[1] ^ 0x0A) - challenge[3]);
     response[1] = 0x7F & ((challenge[2] >> 4) ^ (challenge[0] + challenge[3]));
-    response[2] = 0x7F & (challenge[3] - (challenge[2] << 2) ^ (challenge[0] | challenge[1]));
+    response[2] = 0x7F & ((challenge[3] - (challenge[2] << 2)) ^ (challenge[0] | challenge[1]));
     response[3] = 0x7F & (challenge[1] - challenge[2] + (0xF0 ^ (challenge[3] << 4)));
 }
 
