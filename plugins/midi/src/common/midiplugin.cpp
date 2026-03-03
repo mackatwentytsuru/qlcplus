@@ -115,6 +115,9 @@ void MidiPlugin::closeOutput(quint32 output, quint32 universe)
     MidiOutputDevice* dev = outputDevice(output);
     if (dev != NULL)
     {
+        if (m_mackieHandler != nullptr && m_mackieHandler->outputDevice() == dev)
+            m_mackieHandler->setOutputDevice(nullptr);
+
         removeFromMap(output, universe, Output);
         dev->close();
     }
