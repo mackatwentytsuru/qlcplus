@@ -111,9 +111,14 @@ bool MackieControlProtocol::mackieToInput(uchar cmd, uchar data1, uchar data2,
             uchar vuChannel = (data1 >> 4) & 0x07;
             uchar vuLevel = data1 & 0x0F;
             *channel = MACKIE_VU_OFFSET + vuChannel;
-            // Scale 0-12 to 0-255
-            if (vuLevel > 12) vuLevel = 12;
-            *value = (vuLevel * 255) / 12;
+            // Scale 0-14 to 0-255 (0x0F = clear overload → 0)
+            if (vuLevel == 0x0F)
+            {
+                *value = 0;
+                return true;
+            }
+            if (vuLevel > 14) vuLevel = 14;
+            *value = (vuLevel * 255) / 14;
             return true;
         }
 
@@ -136,7 +141,7 @@ bool MackieControlProtocol::feedbackToMackie(quint32 channel, uchar value,
         *cmd = MIDI_PITCH_WHEEL | midiCh;
         // Convert 8-bit value to 14-bit pitch bend
         // value (0-255) → 14-bit (0-16383)
-        quint16 faderValue = (quint16)value << 6;
+        quint16 faderValue = (quint32)value * 16383 / 255;
         *data1 = faderValue & 0x7F;          // LSB
         *data2 = (faderValue >> 7) & 0x7F;   // MSB
         return true;
@@ -168,8 +173,8 @@ bool MackieControlProtocol::feedbackToMackie(quint32 channel, uchar value,
     {
         uchar vuCh = (uchar)(channel - MACKIE_VU_OFFSET);
         *cmd = MIDI_CHANNEL_AFTERTOUCH;
-        // Encode: high nibble = channel, low nibble = level (0-12)
-        uchar vuLevel = (value * 12) / 255;
+        // Encode: high nibble = channel, low nibble = level (0-14)
+        uchar vuLevel = (value * 14) / 255;
         *data1 = (vuCh << 4) | (vuLevel & 0x0F);
         *data2 = 0;
         return true;

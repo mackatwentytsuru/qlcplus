@@ -145,6 +145,9 @@ void Win32MidiInputDevice::close()
         qWarning() << Q_FUNC_INFO << "Unable to stop MIDI input with id:" << m_id
                    << "name:" << name() << ":" << result;
 
+    // Return all pending buffers before unpreparing
+    midiInReset(m_handle);
+
     // Unprepare SysEx buffer if it was prepared
     if (m_sysExHeader.dwFlags & MHDR_PREPARED)
         midiInUnprepareHeader(m_handle, &m_sysExHeader, sizeof(MIDIHDR));

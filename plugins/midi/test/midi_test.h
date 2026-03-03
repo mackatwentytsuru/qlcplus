@@ -46,6 +46,10 @@ private slots:
     // Mackie Control Protocol: Mapping consistency
     void noteToChannel_roundTrip();
 
+    // Mackie Control Protocol: Round-trip tests
+    void faderRoundTrip();
+    void vuMeterRoundTrip();
+
     // Mackie Control Protocol: VPot LED encoding
     void encodeVPotLed();
 

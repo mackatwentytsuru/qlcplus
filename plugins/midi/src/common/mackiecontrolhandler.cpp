@@ -104,6 +104,13 @@ void MackieControlHandler::handleSysEx(const QByteArray& data)
     {
         case MCU_SYSEX_CMD_CHALLENGE:
         {
+            // Only accept challenge in expected states
+            if (m_handshakeState != WaitingForChallenge && m_handshakeState != Idle)
+            {
+                qDebug() << "[MCU] Unexpected challenge in state:" << m_handshakeState;
+                return;
+            }
+
             // Host Connection Query: F0 00 00 66 [id] 01 [serial x7] [challenge x4] F7
             if (data.size() < 18)
             {

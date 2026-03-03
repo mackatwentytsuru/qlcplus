@@ -232,11 +232,19 @@ void Midi_Test::mackieToInput_vuMeters()
     quint32 channel = 0;
     uchar value = 0;
 
-    // VU channel 0, level 12 (max): data1 = (0 << 4) | 12 = 0x0C
+    // VU channel 0, level 14 (max/overload): data1 = (0 << 4) | 14 = 0x0E
+    // value = (14 * 255) / 14 = 255
+    QVERIFY(MackieControlProtocol::mackieToInput(
+        MIDI_CHANNEL_AFTERTOUCH, 0x0E, 0, &channel, &value));
+    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(value, uchar(255));
+
+    // VU channel 0, level 12: data1 = 0x0C
+    // value = (12 * 255) / 14 = 218
     QVERIFY(MackieControlProtocol::mackieToInput(
         MIDI_CHANNEL_AFTERTOUCH, 0x0C, 0, &channel, &value));
     QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
-    QCOMPARE(value, uchar(255));
+    QCOMPARE(value, uchar(218));
 
     // VU channel 0, level 0: data1 = 0x00
     QVERIFY(MackieControlProtocol::mackieToInput(
@@ -245,17 +253,23 @@ void Midi_Test::mackieToInput_vuMeters()
     QCOMPARE(value, uchar(0));
 
     // VU channel 1, level 6: data1 = (1 << 4) | 6 = 0x16
-    // value = (6 * 255) / 12 = 127
+    // value = (6 * 255) / 14 = 109
     QVERIFY(MackieControlProtocol::mackieToInput(
         MIDI_CHANNEL_AFTERTOUCH, 0x16, 0, &channel, &value));
     QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 1));
-    QCOMPARE(value, uchar(127));
+    QCOMPARE(value, uchar(109));
 
-    // VU channel 7, level 12: data1 = (7 << 4) | 12 = 0x7C
+    // VU channel 7, level 14 (overload): data1 = (7 << 4) | 14 = 0x7E
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x7C, 0, &channel, &value));
+        MIDI_CHANNEL_AFTERTOUCH, 0x7E, 0, &channel, &value));
     QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 7));
     QCOMPARE(value, uchar(255));
+
+    // VU channel 0, level 0xF (clear overload): data1 = 0x0F → value=0
+    QVERIFY(MackieControlProtocol::mackieToInput(
+        MIDI_CHANNEL_AFTERTOUCH, 0x0F, 0, &channel, &value));
+    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(value, uchar(0));
 }
 
 /****************************************************************************
@@ -274,21 +288,20 @@ void Midi_Test::feedbackToMackie_faders()
     QCOMPARE(data2, uchar(0));
 
     // Fader 1, value=255 → maximum 14-bit pitch bend
-    // 255 << 6 = 16320, LSB = 16320 & 0x7F = 0x40, MSB = (16320 >> 7) & 0x7F = 0x7F
+    // 255 * 16383 / 255 = 16383 = 0x3FFF, LSB = 0x7F, MSB = 0x7F
     QVERIFY(MackieControlProtocol::feedbackToMackie(
         MACKIE_FADER_OFFSET + 0, 255, &cmd, &data1, &data2));
     QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL | 0));
-    quint16 faderVal = (quint16)255 << 6;
-    QCOMPARE(data1, uchar(faderVal & 0x7F));
-    QCOMPARE(data2, uchar((faderVal >> 7) & 0x7F));
+    QCOMPARE(data1, uchar(0x7F));
+    QCOMPARE(data2, uchar(0x7F));
 
     // Master fader (ch 8), value=128
+    // 128 * 16383 / 255 = 8223 = 0x201F, LSB = 0x1F, MSB = 0x40
     QVERIFY(MackieControlProtocol::feedbackToMackie(
         MACKIE_FADER_OFFSET + 8, 128, &cmd, &data1, &data2));
     QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL | 8));
-    faderVal = (quint16)128 << 6;
-    QCOMPARE(data1, uchar(faderVal & 0x7F));
-    QCOMPARE(data2, uchar((faderVal >> 7) & 0x7F));
+    QCOMPARE(data1, uchar(0x1F));
+    QCOMPARE(data2, uchar(0x40));
 }
 
 void Midi_Test::feedbackToMackie_buttons()
@@ -363,11 +376,11 @@ void Midi_Test::feedbackToMackie_vuMeters()
 {
     uchar cmd = 0, data1 = 0, data2 = 0;
 
-    // VU ch 0, value=255 (max) → level=12
+    // VU ch 0, value=255 (max) → level = (255 * 14) / 255 = 14
     QVERIFY(MackieControlProtocol::feedbackToMackie(
         MACKIE_VU_OFFSET + 0, 255, &cmd, &data1, &data2));
     QCOMPARE(cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
-    QCOMPARE(data1, uchar((0 << 4) | 12));
+    QCOMPARE(data1, uchar((0 << 4) | 14));
     QCOMPARE(data2, uchar(0));
 
     // VU ch 1, value=0 → level=0
@@ -377,12 +390,11 @@ void Midi_Test::feedbackToMackie_vuMeters()
     QCOMPARE(data1, uchar((1 << 4) | 0));
     QCOMPARE(data2, uchar(0));
 
-    // VU ch 3, value=128 → level = (128 * 12) / 255 = 6
+    // VU ch 3, value=128 → level = (128 * 14) / 255 = 7
     QVERIFY(MackieControlProtocol::feedbackToMackie(
         MACKIE_VU_OFFSET + 3, 128, &cmd, &data1, &data2));
     QCOMPARE(cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
-    uchar expectedLevel = (128 * 12) / 255;
-    QCOMPARE(data1, uchar((3 << 4) | expectedLevel));
+    QCOMPARE(data1, uchar((3 << 4) | 7));
 }
 
 void Midi_Test::feedbackToMackie_7segment()
@@ -481,6 +493,49 @@ void Midi_Test::noteToChannel_roundTrip()
     // Unknown channel should return 0xFF
     QCOMPARE(MackieControlProtocol::channelToNote(999), uchar(0xFF));
     QCOMPARE(MackieControlProtocol::channelToNote(MACKIE_FADER_OFFSET), uchar(0xFF)); // faders aren't buttons
+}
+
+/****************************************************************************
+ * Mackie Control Protocol: Round-trip tests
+ ****************************************************************************/
+
+void Midi_Test::faderRoundTrip()
+{
+    // For every 8-bit value, feedbackToMackie → mackieToInput should round-trip
+    // with at most 1 quantization error (14-bit ↔ 8-bit)
+    for (int val = 0; val <= 255; val++)
+    {
+        uchar cmd, d1, d2;
+        QVERIFY(MackieControlProtocol::feedbackToMackie(
+            MACKIE_FADER_OFFSET + 0, (uchar)val, &cmd, &d1, &d2));
+
+        quint32 ch;
+        uchar inVal;
+        QVERIFY(MackieControlProtocol::mackieToInput(cmd, d1, d2, &ch, &inVal));
+        QCOMPARE(ch, (quint32)(MACKIE_FADER_OFFSET + 0));
+        QVERIFY2(qAbs((int)inVal - val) <= 1,
+                 qPrintable(QString("val=%1 inVal=%2").arg(val).arg(inVal)));
+    }
+}
+
+void Midi_Test::vuMeterRoundTrip()
+{
+    // For every 8-bit value, feedbackToMackie → mackieToInput should round-trip
+    // with bounded quantization error (0-14 levels ↔ 0-255 range)
+    for (int val = 0; val <= 255; val++)
+    {
+        uchar cmd, d1, d2;
+        QVERIFY(MackieControlProtocol::feedbackToMackie(
+            MACKIE_VU_OFFSET + 0, (uchar)val, &cmd, &d1, &d2));
+
+        quint32 ch;
+        uchar inVal;
+        QVERIFY(MackieControlProtocol::mackieToInput(cmd, d1, d2, &ch, &inVal));
+        QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 0));
+        // VU has only 15 levels (0-14) so quantization error can be up to 255/14 ≈ 18
+        QVERIFY2(qAbs((int)inVal - val) <= 19,
+                 qPrintable(QString("val=%1 inVal=%2").arg(val).arg(inVal)));
+    }
 }
 
 /****************************************************************************
