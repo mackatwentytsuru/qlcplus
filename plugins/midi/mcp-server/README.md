@@ -1,22 +1,22 @@
-# MCU Model Context Protocol (MCP) Server
+# MCU Model Context Protocol (MCP) サーバー
 
-This is an MCP server that wraps the Mackie Control Universal (MCU) MIDI protocol. It enables AI assistants (like Claude) to control physical MCU devices, specifically tested with the **Behringer X-Touch Extender**.
+このプロジェクトは、Mackie Control Universal (MCU) MIDIプロトコルをラップするMCPサーバーです。これにより、AIアシスタント（Claudeなど）が物理的なMCUデバイスを制御できるようになります。特に **Behringer X-Touch Extender** でテストされています。
 
-## Installation
+## インストール
 
-To distribute this separately from QLC+, install it via `pip` or use `uvx`:
+QLC+本体とは別に配布するため、`pip` または `uvx` を使用してインストールします：
 
 ```bash
-# Using uvx (recommended for Claude Desktop)
+# uvxを使用する場合（Claude Desktopで推奨）
 uvx mcu-mcp-server
 
-# Or install globally
+# またはグローバルにインストール
 pip install mcu-mcp-server
 ```
 
-## Running with Claude Desktop
+## Claude Desktopでの実行方法
 
-Add the following to your `claude_desktop_config.json`:
+以下の設定を `claude_desktop_config.json` に追加してください：
 
 ```json
 {
@@ -29,12 +29,12 @@ Add the following to your `claude_desktop_config.json`:
 }
 ```
 
-## Features
+## 主な機能
 
-- Motorized Faders control (14-bit precision)
-- Set button LED states (on/off/blink)
-- VPot LED ring control
-- Write text to the LCD scribble strips
-- Read actual device state, handshake, and recent inputs
+- モータライズドフェーダーの制御（14ビット精度）
+- ボタンLEDの状態設定（オン/オフ/点滅）
+- VPot LEDリングの制御
+- LCDスクリブルストリップへのテキストの書き込み
+- 実際のデバイス状態の読み取り、ハンドシェイク、および最近の入力の取得
 
-See `mcu_protocol.py` for exact button mappings and constants.
+正確なボタンマッピングと定数については、`mcu_protocol.py` を参照してください。

@@ -37,24 +37,24 @@
     <img src="https://custom-icon-badges.demolab.com/badge/-Store-green?style=for-the-badge&logo=home&logoColor=white" alt="Official store badge" /></a>
 </p>
 
-## Introduction (Custom Fork)
+## はじめに (カスタムフォーク)
 
 > [!NOTE]
-> This is a **custom fork** of QLC+ maintained independently. Our deepest gratitude goes to Massimo Callegari and all the contributors of the original [Q Light Controller+](https://github.com/mcallegari/qlcplus) for creating such a powerful foundation.
+> これは独立してメンテナンスされている QLC+ の **カスタムフォーク** です。このような強力な基盤となるソフトウェアを作成した Massimo Callegari 氏およびオリジナル [Q Light Controller+](https://github.com/mcallegari/qlcplus) のすべての貢献者に深く感謝いたします。
 
-**QLC+ (Custom Edition)** builds upon the incredible open-source lighting control software to add specialized, bleeding-edge features tailored for modern workflows. 
+**QLC+ (Custom Edition)** は、この素晴らしいオープンソースの照明制御ソフトウェアを基盤とし、最新のワークフローに合わせた最先端の特殊機能を追加したものです。
 
-**Key additions in this fork:**
-1. **Behringer X-Touch MCU Integration**: Includes dedicated input profiles (`Behringer-X-Touch-Extender.qxi`) and MCU SysEx protocol enhancements to seamlessly use the Behringer X-TOUCH series.
-2. **AI Control (MCP Server)**: Ships with a companion Model Context Protocol (MCP) Python server, allowing AI assistants (like Claude) to directly control physical mixers and virtual faders.
+**このフォークの主な追加機能:**
+1. **Behringer X-Touch MCU 統合**: 専用の入力プロファイル (`Behringer-X-Touch-Extender.qxi`) と MCU SysEx プロトコルの強化が含まれており、Behringer X-TOUCH シリーズをシームレスに使用できます。
+2. **AI コントロール (MCP サーバー)**: コンパニオンとなる Model Context Protocol (MCP) Python サーバーが同梱されており、AIアシスタント (Claudeなど) が物理的なミキサーや仮想フェーダーを直接制御することができます。
 
-### 🤖 AI Integration (MCP Server)
+### 🤖 AI 統合 (MCP サーバー)
 
-To bridge the gap between AI tools and physical hardware, this fork includes an MCP Server (`mcu-mcp-server`).
-The server is distributed as a standard Python package.
+AIツールと物理ハードウェアのギャップを埋めるため、このフォークにはMCPサーバー (`mcu-mcp-server`) が含まれています。
+このサーバーは標準的なPythonパッケージとして配布されます。
 
-**How to run the MCP Server with Claude Desktop:**
-Ensure you have `uvx` (or `pip`) installed, then add this to your `claude_desktop_config.json`:
+**Claude DesktopでMCPサーバーを実行する方法:**
+`uvx` (または `pip`) がインストールされていることを確認し、`claude_desktop_config.json` に以下を追加してください：
 
 ```json
 "mcpServers": {
@@ -64,7 +64,7 @@ Ensure you have `uvx` (or `pip`) installed, then add this to your `claude_deskto
   }
 }
 ```
-*Note: The Python MCP server source code is located in `plugins/midi/mcp-server`.*
+*注意: Python MCP サーバーのソースコードは `plugins/midi/mcp-server` にあります。*
 
 ### Supported protocols
 
@@ -76,64 +76,63 @@ Ensure you have `uvx` (or `pip`) installed, then add this to your `claude_deskto
 [![E1.31/S.ACN](https://img.shields.io/badge/E1.31%20S.ACN-%23323330.svg?style=for-the-badge&logo=aiohttp&logoColor=%23F7DF1E)](https://docs.qlcplus.org/v4/plugins/e1-31-sacn)
 [![OS2L](https://img.shields.io/badge/OS2L-%23323330.svg?style=for-the-badge&logo=aiohttp&logoColor=%23F7DF1E)](https://docs.qlcplus.org/v4/plugins/os2l)
 
-### QLC+ on social media
+### QLC+ ソーシャルメディア
 
 [![Instagram](https://img.shields.io/badge/Instagram-%23E4405F.svg?style=flat-square&logo=Instagram)](https://www.instagram.com/qlcplus/) 
 [![YouTube](https://img.shields.io/badge/YouTube-%23FF0000.svg?style=flat-square&logo=YouTube)](https://www.youtube.com/watch?v=I9bccwcYQpM&list=PLHT-wIriuitDiW4A9oKSDr__Z_jcmMVdi) 
 [![Facebook](https://img.shields.io/badge/Facebook-%231877F2.svg?style=flat-square&logo=Facebook)](https://www.facebook.com/qlcplus)
 
-## Support & Bug Reports
+## サポートとバグ報告
 
-This is a personal fork. If you encounter bugs specifically related to the MCP Server or the X-Touch profiles, please open an issue in this repository, **not** upstream. 
-For general QLC+ features, refer to the [official documentation](https://docs.qlcplus.org/).
+これは個人的なフォークです。MCPサーバーまたはX-Touchプロファイルに特有のバグに気付いた場合は、元のリポジトリ（アップストリーム） **ではなく** 、このリポジトリでイシューを開いてください。
+QLC+の一般的な機能については、[公式ドキュメント](https://docs.qlcplus.org/) を参照してください。
 
-### Downloading Pre-built Binaries
-You don't need to compile this yourself! Head over to the **Releases** tab on this GitHub repository to download the latest Windows installer or ZIP archive that includes these custom features out-of-the-box.
+### ビルド済みバイナリのダウンロード
+自分でコンパイルする必要はありません！このGitHubリポジトリの **Releases** タブにアクセスして、これらのカスタム機能を標準で含んだ最新のWindowsインストーラーまたはZIPアーカイブをダウンロードしてください。
 
 
-## Building QLC+
+## QLC+ のビルド
 
-Compilation guides and platform-specific instructions are available in our [GitHub Wiki](https://github.com/mcallegari/qlcplus/wiki).
+コンパイルガイドとプラットフォーム固有の手順は、[GitHub Wiki](https://github.com/mcallegari/qlcplus/wiki) に記載されています。
 
-#### Developers at work
+#### 開発中の方へ
 
 If you're regularly updating QLC+ sources with git pull, you may encounter compiler warnings, errors, or unresolved symbols. We strive to keep the `master` branch free of critical errors; however, dependencies between objects can sometimes cause issues, requiring a full package recompilation rather than just updating recent changes.
 
-## Contributing
-### Software development
+## 貢献について
+### ソフトウェア開発
 
-We welcome contributions from the community to help make QLC+ even better. If you're working on something major, start a thread in the [Development Forum](https://www.qlcplus.org/forum/viewforum.php?f=12) first. Make sure you read the [CONTRIBUTING.md](CONTRIBUTING.md) document for more.
+QLC+をさらに良くするためのコミュニティからの貢献を歓迎します。大きな変更に取り組む場合は、まず [Development Forum](https://www.qlcplus.org/forum/viewforum.php?f=12) でスレッドを立ち上げてください。詳細は [CONTRIBUTING.md](CONTRIBUTING.md) ドキュメントを必ずお読みください。
 
-### Financially
+### 資金的な支援
 
-If you're reading this we already appreciate you. If you're just getting started with lighting you have absolutely no obligation to give us money. When QLC+ opens up revenue opportunities for you, we'd be very thankful for your support. GitHub sponsors is the preferred option.
+これを読んでくださっているだけで、すでに感謝しています。照明を始めたばかりであれば、金銭的な支援の義務は全くありません。QLC+があなたに収益の機会をもたらした際には、サポートいただけると大変ありがたいです。GitHubスポンサーが推奨されるオプションです。
 
 <img src="https://img.shields.io/github/sponsors/mcallegari" alt="GitHub Sponsors"> <a href="https://github.com/sponsors/mcallegari"><img src="https://img.shields.io/badge/sponsor-30363D?logo=GitHub-Sponsors&logoColor=#white" /></a>
 
-If you're interested, QLC+ also has an [official store](https://qlcplus-merch.myshopify.com) where you can purchase [clothing](https://qlcplus-merch.myshopify.com/collections/clothing), [themes](https://qlcplus-merch.myshopify.com/collections/themes), the [Raspberry Pi image](https://qlcplus-merch.myshopify.com/products/qlc-raspberry-pi-image) or [one-on-one consultation](https://qlcplus-merch.myshopify.com/collections/training-and-support) with an expert. 
+もしご興味がありましたら、QLC+には[公式ストア](https://qlcplus-merch.myshopify.com)もあり、[衣類](https://qlcplus-merch.myshopify.com/collections/clothing)、[テーマ](https://qlcplus-merch.myshopify.com/collections/themes)、[Raspberry Piイメージ](https://qlcplus-merch.myshopify.com/products/qlc-raspberry-pi-image)、または専門家への[1対1のコンサルティング](https://qlcplus-merch.myshopify.com/collections/training-and-support)を購入することができます。
 
 
+## ありがとうございます！
 
-## Thank you!
-
-QLC+ owes its success to the dedication and expertise of numerous individuals who have generously contributed their time and skills. The following list recognizes those whose remarkable contributions have played a pivotal role in building QLC+.
+QLC+の成功は、惜しみなく時間とスキルを提供してくださった多くの個人の献身と専門知識のおかげです。以下のリストは、QLC+の構築において重要な役割を果たした注目すべき貢献者の方々を称えるものです。
 
 ![GitHub contributors](https://img.shields.io/github/contributors/mcallegari/qlcplus)
 
 <details>
 <summary>QLC+ 5</summary>
     
-*   Eric Arnebäck (3D preview features)
-*   Santiago Benejam Torres (Catalan translation)
-*   Luis García Tornel (Spanish translation)
-*   Nils Van Zuijlen, Jérôme Lebleu (French translation)
-*   Felix Edelmann, Florian Edelmann (fixture definitions, German translation)
-*   Jannis Achstetter (German translation)
-*   Dai Suetake (Japanese translation)
-*   Hannes Bossuyt (Dutch translation)
-*   Aleksandr Gusarov (Russian translation)
-*   Vadim Syniuhin (Ukrainian translation)
-*   Mateusz Kędzierski + smaks6 (Polish translation)
+*   Eric Arnebäck (3D プレビュー機能)
+*   Santiago Benejam Torres (カタロニア語 翻訳)
+*   Luis García Tornel (スペイン語 翻訳)
+*   Nils Van Zuijlen, Jérôme Lebleu (フランス語 翻訳)
+*   Felix Edelmann, Florian Edelmann (フィクスチャ定義、ドイツ語 翻訳)
+*   Jannis Achstetter (ドイツ語 翻訳)
+*   Dai Suetake (日本語 翻訳)
+*   Hannes Bossuyt (オランダ語 翻訳)
+*   Aleksandr Gusarov (ロシア語 翻訳)
+*   Vadim Syniuhin (ウクライナ語 翻訳)
+*   Mateusz Kędzierski + smaks6 (ポーランド語 翻訳)
 
 </details>
 
