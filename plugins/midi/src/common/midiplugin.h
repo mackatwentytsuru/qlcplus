@@ -29,6 +29,7 @@
 #include "qlcioplugin.h"
 #include "miditemplate.h"
 
+class MackieControlHandler;
 class ConfigureMIDIPlugin;
 class MidiOutputDevice;
 class MidiInputDevice;
@@ -122,6 +123,9 @@ private slots:
     /** Catch MIDI input device valueChanged signals */
     void slotValueChanged(const QVariant& uid, ushort channel, uchar value);
 
+    /** Handle SysEx messages from Mackie Control devices */
+    void slotSysExReceived(const QVariant& uid, const QByteArray& data);
+
     /*************************************************************************
      * Configuration
      *************************************************************************/
@@ -154,6 +158,15 @@ public:
 private:
     /** List that contains all available midi templates */
     QList <MidiTemplate*> m_midiTemplates;
+
+    /*************************************************************************
+     * Mackie Control
+     *************************************************************************/
+public:
+    MackieControlHandler* mackieHandler() const;
+
+private:
+    MackieControlHandler* m_mackieHandler;
 
     /********************************************************************
      * Hotplug

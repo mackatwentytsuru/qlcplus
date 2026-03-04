@@ -35,3 +35,8 @@ void MidiInputDevice::emitValueChanged(uint channel, uchar value)
 {
     emit valueChanged(uid(), channel, value);
 }
+
+void MidiInputDevice::emitSysExReceived(const QByteArray& data)
+{
+    emit sysExReceived(uid(), data);
+}

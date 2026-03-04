@@ -22,6 +22,7 @@
 
 #include "alsamidiinputdevice.h"
 #include "alsamidiinputthread.h"
+#include "mackiecontrolprotocol.h"
 #include "alsamidiutil.h"
 #include "midiprotocol.h"
 
@@ -282,6 +283,17 @@ void AlsaMidiInputThread::readEvent()
 
             qDebug()  << "MIDI clock: " << cmd;
         }
+        else if (ev->type == SND_SEQ_EVENT_SYSEX)
+        {
+            // SysEx messages - pass to device for Mackie Control handshake etc.
+            if (device->mode() == MidiDevice::MackieControl && ev->data.ext.len > 0)
+            {
+                QByteArray sysex((const char*)ev->data.ext.ptr, ev->data.ext.len);
+                device->emitSysExReceived(sysex);
+            }
+            snd_seq_free_event(ev);
+            continue;
+        }
 
         // ALSA API is a bit controversial on this. snd_seq_event_input() says
         // it ALLOCATES the event but snd_seq_free_event() says this is not
@@ -291,11 +303,24 @@ void AlsaMidiInputThread::readEvent()
 
         uint channel = 0;
         uchar value = 0;
+        bool parsed = false;
+
         //qDebug() << "MIDI cmd" << cmd << "data1" << data1 << "data2" << data2
         //         << "channel" << MIDI_CH(cmd) << "devch" << device->midiChannel();
 
-        if (QLCMIDIProtocol::midiToInput(cmd, data1, data2, uchar(device->midiChannel()),
-                                         &channel, &value) == true)
+        if (device->mode() == MidiDevice::MackieControl)
+        {
+            parsed = MackieControlProtocol::mackieToInput(cmd, data1, data2,
+                                                          &channel, &value);
+        }
+        else
+        {
+            parsed = QLCMIDIProtocol::midiToInput(cmd, data1, data2,
+                                                   uchar(device->midiChannel()),
+                                                   &channel, &value);
+        }
+
+        if (parsed == true)
         {
             device->emitValueChanged(channel, value);
             // for MIDI beat clock signals,

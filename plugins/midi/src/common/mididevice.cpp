@@ -32,6 +32,7 @@
 #define NOTE_VELOCITY "Note Velocity"
 #define CONTROL_CHANGE "Control Change"
 #define PROGRAM_CHANGE "Program Change"
+#define MACKIE_CONTROL "Mackie Control"
 
 #define TYPE_INPUT "Input"
 #define TYPE_OUTPUT "Output"
@@ -133,6 +134,9 @@ QString MidiDevice::modeToString(Mode mode)
     case ProgramChange:
         return QString(PROGRAM_CHANGE);
         break;
+    case MackieControl:
+        return QString(MACKIE_CONTROL);
+        break;
     }
 }
 
@@ -142,6 +146,8 @@ MidiDevice::Mode MidiDevice::stringToMode(const QString& mode)
        return Note;
    else if (mode == QString(PROGRAM_CHANGE))
        return ProgramChange;
+   else if (mode == QString(MACKIE_CONTROL))
+       return MackieControl;
    else
        return ControlChange;
 }

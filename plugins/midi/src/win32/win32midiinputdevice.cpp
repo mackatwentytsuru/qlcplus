@@ -20,6 +20,7 @@
 #include <QDebug>
 
 #include "win32midiinputdevice.h"
+#include "mackiecontrolprotocol.h"
 #include "midiprotocol.h"
 
 extern "C" {
@@ -48,15 +49,37 @@ static void CALLBACK MidiInProc(HMIDIIN hMidiIn, UINT wMsg,
 
         quint32 channel = 0;
         uchar value = 0;
+        bool parsed = false;
 
-        if (QLCMIDIProtocol::midiToInput(cmd, data1, data2,
-            uchar(self->midiChannel()), &channel, &value) == true)
+        if (self->mode() == MidiDevice::MackieControl)
+            parsed = MackieControlProtocol::mackieToInput(cmd, data1, data2, &channel, &value);
+        else
+            parsed = QLCMIDIProtocol::midiToInput(cmd, data1, data2,
+                         uchar(self->midiChannel()), &channel, &value);
+
+        if (parsed == true)
         {
             self->emitValueChanged(channel, value);
             // for MIDI beat clock signals,
             // generate a synthetic release event
             if (cmd >= MIDI_BEAT_CLOCK && cmd <= MIDI_BEAT_STOP)
                 self->emitValueChanged(channel, 0);
+        }
+    }
+    else if (wMsg == MIM_LONGDATA)
+    {
+        // SysEx messages for Mackie Control handshake
+        if (self->mode() == MidiDevice::MackieControl)
+        {
+            MIDIHDR* header = (MIDIHDR*)dwParam1;
+            if (header != NULL && header->dwBytesRecorded > 0)
+            {
+                QByteArray sysex((const char*)header->lpData, header->dwBytesRecorded);
+                self->emitSysExReceived(sysex);
+            }
+            // Re-add the buffer for the next SysEx message
+            if (self->m_handle != NULL)
+                midiInAddBuffer(self->m_handle, header, sizeof(MIDIHDR));
         }
     }
 }
@@ -71,6 +94,8 @@ Win32MidiInputDevice::Win32MidiInputDevice(const QVariant& uid, const QString& n
     , m_mbc_counter(UINT_MAX)
 {
     qDebug() << Q_FUNC_INFO;
+    memset(&m_sysExHeader, 0, sizeof(MIDIHDR));
+    memset(m_sysExBuffer, 0, SYSEX_BUFFER_SIZE);
 }
 
 Win32MidiInputDevice::~Win32MidiInputDevice()
@@ -95,6 +120,14 @@ bool Win32MidiInputDevice::open()
     }
     else
     {
+        // Prepare SysEx buffer for Mackie Control handshake
+        if (mode() == MidiDevice::MackieControl)
+        {
+            m_sysExHeader.lpData = m_sysExBuffer;
+            m_sysExHeader.dwBufferLength = SYSEX_BUFFER_SIZE;
+            midiInPrepareHeader(m_handle, &m_sysExHeader, sizeof(MIDIHDR));
+            midiInAddBuffer(m_handle, &m_sysExHeader, sizeof(MIDIHDR));
+        }
         midiInStart(m_handle);
     }
     return true;
@@ -111,6 +144,13 @@ void Win32MidiInputDevice::close()
     if (result != MMSYSERR_NOERROR)
         qWarning() << Q_FUNC_INFO << "Unable to stop MIDI input with id:" << m_id
                    << "name:" << name() << ":" << result;
+
+    // Return all pending buffers before unpreparing
+    midiInReset(m_handle);
+
+    // Unprepare SysEx buffer if it was prepared
+    if (m_sysExHeader.dwFlags & MHDR_PREPARED)
+        midiInUnprepareHeader(m_handle, &m_sysExHeader, sizeof(MIDIHDR));
 
     result = midiInClose(m_handle);
     if (result != MMSYSERR_NOERROR)

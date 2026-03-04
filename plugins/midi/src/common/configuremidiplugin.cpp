@@ -98,6 +98,15 @@ void ConfigureMidiPlugin::slotModeActivated(int index)
 
     MidiDevice::Mode mode = (MidiDevice::Mode) combo->itemData(index).toInt();
     dev->setMode(mode);
+
+    // Mackie Control uses fixed MIDI channel, disable channel selector
+    QTreeWidgetItem* item = m_tree->itemAt(combo->pos());
+    if (item != nullptr)
+    {
+        QWidget* channelWidget = m_tree->itemWidget(item, COL_CHANNEL);
+        if (channelWidget != nullptr)
+            channelWidget->setEnabled(mode != MidiDevice::MackieControl);
+    }
 }
 
 void ConfigureMidiPlugin::slotInitMessageActivated(int index)
@@ -145,6 +154,7 @@ void ConfigureMidiPlugin::slotUpdateTree()
 
         QWidget* widget = createMidiChannelWidget(dev->midiChannel());
         widget->setProperty(PROP_DEV, (qulonglong) dev);
+        widget->setEnabled(dev->mode() != MidiDevice::MackieControl);
         m_tree->setItemWidget(item, COL_CHANNEL, widget);
 
         widget = createModeWidget(dev->mode());
@@ -168,6 +178,7 @@ void ConfigureMidiPlugin::slotUpdateTree()
 
         QWidget* widget = createMidiChannelWidget(dev->midiChannel());
         widget->setProperty(PROP_DEV, (qulonglong) dev);
+        widget->setEnabled(dev->mode() != MidiDevice::MackieControl);
         m_tree->setItemWidget(item, COL_CHANNEL, widget);
 
         widget = createModeWidget(dev->mode());
@@ -205,11 +216,14 @@ QWidget* ConfigureMidiPlugin::createModeWidget(MidiDevice::Mode mode)
     combo->addItem(MidiDevice::modeToString(MidiDevice::Note), MidiDevice::Note);
     combo->addItem(MidiDevice::modeToString(MidiDevice::ControlChange), MidiDevice::ControlChange);
     combo->addItem(MidiDevice::modeToString(MidiDevice::ProgramChange), MidiDevice::ProgramChange);
+    combo->addItem(MidiDevice::modeToString(MidiDevice::MackieControl), MidiDevice::MackieControl);
 
     if (mode == MidiDevice::ControlChange)
         combo->setCurrentIndex(1);
     else if (mode == MidiDevice::ProgramChange)
         combo->setCurrentIndex(2);
+    else if (mode == MidiDevice::MackieControl)
+        combo->setCurrentIndex(3);
     else
         combo->setCurrentIndex(0);
 

@@ -26,6 +26,8 @@
 #include <QDebug>
 
 #include "configuremidiplugin.h"
+#include "mackiecontrolprotocol.h"
+#include "mackiecontrolhandler.h"
 #include "midioutputdevice.h"
 #include "midiinputdevice.h"
 #include "midienumerator.h"
@@ -49,6 +51,8 @@ void MidiPlugin::init()
 
     loadMidiTemplates(userMidiTemplateDirectory());
     loadMidiTemplates(systemMidiTemplateDirectory());
+
+    m_mackieHandler = new MackieControlHandler(this);
 }
 
 MidiPlugin::~MidiPlugin()
@@ -86,6 +90,12 @@ bool MidiPlugin::openOutput(quint32 output, quint32 universe)
 
     dev->open();
 
+    if (dev->mode() == MidiDevice::MackieControl && m_mackieHandler != nullptr)
+    {
+        m_mackieHandler->setOutputDevice(dev);
+        m_mackieHandler->initiateHandshake();
+    }
+
     if (dev->midiTemplateName() != "")
     {
         qDebug() << "[MIDI] Opening device with template: " << dev->midiTemplateName();
@@ -105,6 +115,9 @@ void MidiPlugin::closeOutput(quint32 output, quint32 universe)
     MidiOutputDevice* dev = outputDevice(output);
     if (dev != NULL)
     {
+        if (m_mackieHandler != nullptr && m_mackieHandler->outputDevice() == dev)
+            m_mackieHandler->setOutputDevice(nullptr);
+
         removeFromMap(output, universe, Output);
         dev->close();
     }
@@ -209,6 +222,8 @@ bool MidiPlugin::openInput(quint32 input, quint32 universe)
     {
         connect(dev, SIGNAL(valueChanged(QVariant,ushort,uchar)),
                 this, SLOT(slotValueChanged(QVariant,ushort,uchar)));
+        connect(dev, SIGNAL(sysExReceived(QVariant,QByteArray)),
+                this, SLOT(slotSysExReceived(QVariant,QByteArray)));
         addToMap(universe, input, Input);
         return dev->open();
     }
@@ -226,6 +241,8 @@ void MidiPlugin::closeInput(quint32 input, quint32 universe)
         dev->close();
         disconnect(dev, SIGNAL(valueChanged(QVariant,ushort,uchar)),
                    this, SLOT(slotValueChanged(QVariant,ushort,uchar)));
+        disconnect(dev, SIGNAL(sysExReceived(QVariant,QByteArray)),
+                   this, SLOT(slotSysExReceived(QVariant,QByteArray)));
     }
 }
 
@@ -297,12 +314,25 @@ void MidiPlugin::sendFeedBack(quint32 universe, quint32 output, quint32 channel,
         qDebug() << "[sendFeedBack] Dev:" << dev->name() << ", channel:" << channel << ", value:" << value << dev->sendNoteOff();
         uchar cmd = 0;
         uchar data1 = 0, data2 = 0;
-        int midiChannel = dev->midiChannel();
-        if (params.isValid() && params.toInt() >= 0)
-            midiChannel += params.toInt();
+        bool converted = false;
 
-        if (QLCMIDIProtocol::feedbackToMidi(channel, value, midiChannel, dev->sendNoteOff(),
-                                        &cmd, &data1, &data2) == true)
+        if (dev->mode() == MidiDevice::MackieControl)
+        {
+            converted = MackieControlProtocol::feedbackToMackie(channel, value,
+                                                                 &cmd, &data1, &data2);
+        }
+        else
+        {
+            int midiChannel = dev->midiChannel();
+            if (params.isValid() && params.toInt() >= 0)
+                midiChannel += params.toInt();
+
+            converted = QLCMIDIProtocol::feedbackToMidi(channel, value, midiChannel,
+                                                         dev->sendNoteOff(),
+                                                         &cmd, &data1, &data2);
+        }
+
+        if (converted == true)
         {
             qDebug() << "[sendFeedBack] cmd:" << cmd << "data1:" << data1 << "data2:" << data2;
             dev->writeFeedback(cmd, data1, data2);
@@ -339,6 +369,18 @@ void MidiPlugin::slotValueChanged(const QVariant& uid, ushort channel, uchar val
             break;
         }
     }
+}
+
+void MidiPlugin::slotSysExReceived(const QVariant& uid, const QByteArray& data)
+{
+    Q_UNUSED(uid)
+    if (m_mackieHandler != nullptr)
+        m_mackieHandler->handleSysEx(data);
+}
+
+MackieControlHandler* MidiPlugin::mackieHandler() const
+{
+    return m_mackieHandler;
 }
 
 /*****************************************************************************

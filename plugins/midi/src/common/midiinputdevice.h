@@ -31,9 +31,11 @@ public:
     virtual ~MidiInputDevice();
 
     void emitValueChanged(uint channel, uchar value);
+    void emitSysExReceived(const QByteArray& data);
 
 signals:
     void valueChanged(const QVariant& uid, ushort channel, uchar value);
+    void sysExReceived(const QVariant& uid, const QByteArray& data);
 };
 
 #endif

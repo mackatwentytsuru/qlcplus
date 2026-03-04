@@ -50,6 +50,10 @@ coverage/
 # Development IDEs
 .vscode/
 
+# Python
+__pycache__/
+*.pyc
+
 # CMake build
 CMakeLists.txt.user
 build*
