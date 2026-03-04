@@ -10,6 +10,11 @@ add_executable(midi_test WIN32 MACOSX_BUNDLE
     ../../interfaces/qlcioplugin.cpp ../../interfaces/qlcioplugin.h
     ../src/common/midiprotocol.cpp ../src/common/midiprotocol.h
     ../src/common/mackiecontrolprotocol.cpp ../src/common/mackiecontrolprotocol.h
+    ../src/common/mackiecontrolhandler.cpp ../src/common/mackiecontrolhandler.h
+    ../src/common/mididevice.cpp ../src/common/mididevice.h
+    ../src/common/midioutputdevice.cpp ../src/common/midioutputdevice.h
+    ../src/common/miditemplate.h
+    miditemplate_stub.cpp
     midi_test.cpp midi_test.h
 )
 target_include_directories(midi_test PRIVATE

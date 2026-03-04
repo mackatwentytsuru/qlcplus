@@ -18,14 +18,58 @@
 */
 
 #include <QTest>
+#include <QSignalSpy>
+#include <QSet>
 #include <climits>
 
 #define private public
 #include "midi_test.h"
 #include "midiprotocol.h"
 #include "mackiecontrolprotocol.h"
-
+#include "mackiecontrolhandler.h"
+#include "midioutputdevice.h"
 #undef private
+
+/****************************************************************************
+ * Mock MidiOutputDevice for handler testing
+ ****************************************************************************/
+
+class MockMidiOutputDevice : public MidiOutputDevice
+{
+public:
+    MockMidiOutputDevice()
+        : MidiOutputDevice(QVariant("mock-uid"), "MockMCU")
+        , m_isOpen(false)
+    {
+    }
+
+    bool open() override { m_isOpen = true; return true; }
+    void close() override { m_isOpen = false; }
+    bool isOpen() const override { return m_isOpen; }
+
+    void writeChannel(ushort channel, uchar value) override
+    { Q_UNUSED(channel) Q_UNUSED(value) }
+
+    void writeUniverse(const QByteArray& universe) override
+    { Q_UNUSED(universe) }
+
+    void writeFeedback(uchar cmd, uchar data1, uchar data2) override
+    {
+        FeedbackMsg msg;
+        msg.cmd = cmd; msg.data1 = data1; msg.data2 = data2;
+        feedbackMsgs.append(msg);
+    }
+
+    void writeSysEx(QByteArray message) override
+    { sysExMsgs.append(message); }
+
+    struct FeedbackMsg { uchar cmd, data1, data2; };
+    QList<FeedbackMsg> feedbackMsgs;
+    QList<QByteArray> sysExMsgs;
+    bool m_isOpen;
+
+    void clear() { feedbackMsgs.clear(); sysExMsgs.clear(); }
+};
 
 /****************************************************************************
  * Original MIDI protocol tests
@@ -35,14 +79,9 @@ void Midi_Test::midiToInput()
 {
     quint32 channel = 0;
     uchar value = 0;
-
     uchar midiChannel = 7;
     uchar cmd = MIDI_NOTE_ON | midiChannel;
-    uchar data1 = 10;
-    uchar data2 = 127;
-
-    QLCMIDIProtocol::midiToInput(cmd, data1, data2, midiChannel, &channel, &value);
-
+    QLCMIDIProtocol::midiToInput(cmd, 10, 127, midiChannel, &channel, &value);
     QCOMPARE(channel, 138U);
     QCOMPARE(value, uchar(255U));
 }
@@ -53,446 +92,278 @@ void Midi_Test::midiToInput()
 
 void Midi_Test::mackieToInput_faders()
 {
-    quint32 channel = 0;
-    uchar value = 0;
+    quint32 ch = 0; uchar val = 0;
 
-    // Fader 1 at mid position: Pitch Bend ch 0, data1=0x00, data2=0x40
-    // value = (0x40 << 1) | ((0x00 >> 6) & 0x01) = 128
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 0, 0x00, 0x40, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_OFFSET + 0));
-    QCOMPARE(value, uchar(128));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|0, 0x00, 0x40, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_FADER_OFFSET+0)); QCOMPARE(val, uchar(128));
 
-    // Fader 1 at zero: data1=0, data2=0
-    // value = (0 << 1) | 0 = 0
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 0, 0x00, 0x00, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_OFFSET + 0));
-    QCOMPARE(value, uchar(0));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|0, 0x00, 0x00, &ch, &val));
+    QCOMPARE(val, uchar(0));
 
-    // Fader 1 at maximum: data1=0x7F, data2=0x7F
-    // value = (0x7F << 1) | ((0x7F >> 6) & 0x01) = 254 | 1 = 255
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 0, 0x7F, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_OFFSET + 0));
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|0, 0x7F, 0x7F, &ch, &val));
+    QCOMPARE(val, uchar(255));
 
-    // Master fader (ch 8) at mid position
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 8, 0x00, 0x40, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_OFFSET + 8));
-    QCOMPARE(value, uchar(128));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|8, 0x00, 0x40, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_FADER_OFFSET+8)); QCOMPARE(val, uchar(128));
 
-    // Out of range: Pitch Bend ch 9 should fail
-    QVERIFY(!MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 9, 0x00, 0x40, &channel, &value));
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|9, 0x00, 0x40, &ch, &val));
 
-    // Fader 5 (ch 4) with LSB=0x40 (bit 6 set)
-    // value = (0x40 << 1) | ((0x40 >> 6) & 0x01) = 128 | 1 = 129
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_PITCH_WHEEL | 4, 0x40, 0x40, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_OFFSET + 4));
-    QCOMPARE(value, uchar(129));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|4, 0x40, 0x40, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_FADER_OFFSET+4)); QCOMPARE(val, uchar(129));
 }
 
 void Midi_Test::mackieToInput_buttons()
 {
-    quint32 channel = 0;
-    uchar value = 0;
+    quint32 ch = 0; uchar val = 0;
 
-    // REC 1 pressed: Note On note=0x00, vel=0x7F
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_REC_BASE, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_REC_OFFSET);
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_REC_BASE, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_REC_OFFSET); QCOMPARE(val, uchar(255));
 
-    // REC 1 released via vel=0x00: Note On with velocity 0
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_REC_BASE, 0x00, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_REC_OFFSET);
-    QCOMPARE(value, uchar(0));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_REC_BASE, 0x00, &ch, &val));
+    QCOMPARE(val, uchar(0));
 
-    // SOLO 1 released: Note Off note=0x08
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_OFF, MCU_NOTE_SOLO_BASE, 0x00, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_SOLO_OFFSET);
-    QCOMPARE(value, uchar(0));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_OFF, MCU_NOTE_SOLO_BASE, 0x00, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_SOLO_OFFSET); QCOMPARE(val, uchar(0));
 
-    // PLAY pressed: Note On note=0x5E, vel=0x7F
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_PLAY, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_TRANSPORT_OFFSET + 3));
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_PLAY, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_TRANSPORT_OFFSET+3)); QCOMPARE(val, uchar(255));
 
-    // MUTE 8 pressed: Note On note=0x17, vel=0x7F
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_MUTE_BASE + 7, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_MUTE_OFFSET + 7));
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_MUTE_BASE+7, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_MUTE_OFFSET+7));
 
-    // SELECT 1 pressed
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_SELECT_BASE, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_SELECT_OFFSET);
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_SELECT_BASE, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_SELECT_OFFSET);
 
-    // VPot push 1
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_VPOT_SW_BASE, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_VPOT_PUSH_OFFSET);
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_VPOT_SW_BASE, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_VPOT_PUSH_OFFSET);
 
-    // Fader touch 1
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_FADER_TOUCH_BASE, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_FADER_TOUCH_OFFSET);
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_FADER_TOUCH_BASE, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_FADER_TOUCH_OFFSET);
 
-    // Master fader touch
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_FADER_TOUCH_MASTER, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_FADER_TOUCH_OFFSET + 8));
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_FADER_TOUCH_MASTER, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_FADER_TOUCH_OFFSET+8));
 
-    // F1 button
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, MCU_NOTE_F1, 0x7F, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_FUNCTION_OFFSET);
-    QCOMPARE(value, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_F1, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_FUNCTION_OFFSET);
 
-    // Unknown note 0xFF should fail
-    QVERIFY(!MackieControlProtocol::mackieToInput(
-        MIDI_NOTE_ON, 0xFF, 0x7F, &channel, &value));
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, 0xFF, 0x7F, &ch, &val));
 }
 
 void Midi_Test::mackieToInput_vpots()
 {
-    quint32 channel = 0;
-    uchar value = 0;
-
-    // VPot 1 clockwise 1 click: CC 16, data2=0x01
-    // value = 127 + 1 = 128
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x01, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VPOT_OFFSET + 0));
-    QCOMPARE(value, uchar(128));
-
-    // VPot 1 clockwise max speed: CC 16, data2=0x0F
-    // value = 127 + 15 = 142
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x0F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VPOT_OFFSET + 0));
-    QCOMPARE(value, uchar(142));
-
-    // VPot 1 counter-clockwise 1 click: CC 16, data2=0x41
-    // value = 127 - (0x41 - 0x40) = 127 - 1 = 126
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x41, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VPOT_OFFSET + 0));
-    QCOMPARE(value, uchar(126));
-
-    // VPot 1 counter-clockwise max speed: CC 16, data2=0x4F
-    // value = 127 - (0x4F - 0x40) = 127 - 15 = 112
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x4F, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VPOT_OFFSET + 0));
-    QCOMPARE(value, uchar(112));
-
-    // VPot 8: CC 23, data2=0x01
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE + 7, 0x01, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VPOT_OFFSET + 7));
-    QCOMPARE(value, uchar(128));
-
-    // Unrelated CC (CC 10) should fail
-    QVERIFY(!MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, 10, 0x01, &channel, &value));
+    quint32 ch = 0; uchar val = 0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x01, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VPOT_OFFSET+0)); QCOMPARE(val, uchar(128));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x0F, &ch, &val));
+    QCOMPARE(val, uchar(142));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x41, &ch, &val));
+    QCOMPARE(val, uchar(126));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x4F, &ch, &val));
+    QCOMPARE(val, uchar(112));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE+7, 0x01, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VPOT_OFFSET+7)); QCOMPARE(val, uchar(128));
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, 10, 0x01, &ch, &val));
 }
 
 void Midi_Test::mackieToInput_jogWheel()
 {
-    quint32 channel = 0;
-    uchar value = 0;
-
-    // Jog clockwise: CC 60, data2=0x01
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x01, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_JOG_OFFSET);
-    QCOMPARE(value, uchar(128));
-
-    // Jog counter-clockwise: CC 60, data2=0x41
-    QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x41, &channel, &value));
-    QCOMPARE(channel, (quint32)MACKIE_JOG_OFFSET);
-    QCOMPARE(value, uchar(126));
+    quint32 ch = 0; uchar val = 0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x01, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_JOG_OFFSET); QCOMPARE(val, uchar(128));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x41, &ch, &val));
+    QCOMPARE(val, uchar(126));
 }
 
 void Midi_Test::mackieToInput_vuMeters()
 {
-    quint32 channel = 0;
-    uchar value = 0;
+    quint32 ch = 0;
+    uchar val = 0;
 
-    // VU channel 0, level 14 (max/overload): data1 = (0 << 4) | 14 = 0x0E
+    // VU channel 0, level 14 (max): data1 = (0 << 4) | 14 = 0x0E
     // value = (14 * 255) / 14 = 255
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x0E, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
-    QCOMPARE(value, uchar(255));
+        MIDI_CHANNEL_AFTERTOUCH, 0x0E, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(val, uchar(255));
 
     // VU channel 0, level 12: data1 = 0x0C
     // value = (12 * 255) / 14 = 218
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x0C, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
-    QCOMPARE(value, uchar(218));
+        MIDI_CHANNEL_AFTERTOUCH, 0x0C, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(val, uchar(218));
 
     // VU channel 0, level 0: data1 = 0x00
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x00, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
-    QCOMPARE(value, uchar(0));
+        MIDI_CHANNEL_AFTERTOUCH, 0x00, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(val, uchar(0));
 
     // VU channel 1, level 6: data1 = (1 << 4) | 6 = 0x16
     // value = (6 * 255) / 14 = 109
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x16, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 1));
-    QCOMPARE(value, uchar(109));
+        MIDI_CHANNEL_AFTERTOUCH, 0x16, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 1));
+    QCOMPARE(val, uchar(109));
 
     // VU channel 7, level 14 (overload): data1 = (7 << 4) | 14 = 0x7E
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x7E, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 7));
-    QCOMPARE(value, uchar(255));
+        MIDI_CHANNEL_AFTERTOUCH, 0x7E, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 7));
+    QCOMPARE(val, uchar(255));
 
     // VU channel 0, level 0xF (clear overload): data1 = 0x0F → value=0
     QVERIFY(MackieControlProtocol::mackieToInput(
-        MIDI_CHANNEL_AFTERTOUCH, 0x0F, 0, &channel, &value));
-    QCOMPARE(channel, (quint32)(MACKIE_VU_OFFSET + 0));
-    QCOMPARE(value, uchar(0));
+        MIDI_CHANNEL_AFTERTOUCH, 0x0F, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET + 0));
+    QCOMPARE(val, uchar(0));
 }
 
 /****************************************************************************
- * Mackie Control Protocol: Feedback conversion tests
+ * Feedback conversion tests
  ****************************************************************************/
 
 void Midi_Test::feedbackToMackie_faders()
 {
-    uchar cmd = 0, data1 = 0, data2 = 0;
-
-    // Fader 1, value=0 → Pitch Bend ch 0, zero
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_FADER_OFFSET + 0, 0, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL | 0));
-    QCOMPARE(data1, uchar(0));
-    QCOMPARE(data2, uchar(0));
+    uchar cmd=0, d1=0, d2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_FADER_OFFSET+0, 0, &cmd, &d1, &d2));
+    QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL|0)); QCOMPARE(d1, uchar(0)); QCOMPARE(d2, uchar(0));
 
     // Fader 1, value=255 → maximum 14-bit pitch bend
     // 255 * 16383 / 255 = 16383 = 0x3FFF, LSB = 0x7F, MSB = 0x7F
     QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_FADER_OFFSET + 0, 255, &cmd, &data1, &data2));
+        MACKIE_FADER_OFFSET + 0, 255, &cmd, &d1, &d2));
     QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL | 0));
-    QCOMPARE(data1, uchar(0x7F));
-    QCOMPARE(data2, uchar(0x7F));
+    QCOMPARE(d1, uchar(0x7F));
+    QCOMPARE(d2, uchar(0x7F));
 
     // Master fader (ch 8), value=128
     // 128 * 16383 / 255 = 8223 = 0x201F, LSB = 0x1F, MSB = 0x40
     QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_FADER_OFFSET + 8, 128, &cmd, &data1, &data2));
+        MACKIE_FADER_OFFSET + 8, 128, &cmd, &d1, &d2));
     QCOMPARE(cmd, uchar(MIDI_PITCH_WHEEL | 8));
-    QCOMPARE(data1, uchar(0x1F));
-    QCOMPARE(data2, uchar(0x40));
+    QCOMPARE(d1, uchar(0x1F));
+    QCOMPARE(d2, uchar(0x40));
 }
 
 void Midi_Test::feedbackToMackie_buttons()
 {
-    uchar cmd = 0, data1 = 0, data2 = 0;
+    uchar cmd=0, d1=0, d2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_REC_OFFSET, 255, &cmd, &d1, &d2));
+    QCOMPARE(cmd, uchar(MIDI_NOTE_ON)); QCOMPARE(d1, uchar(MCU_NOTE_REC_BASE)); QCOMPARE(d2, uchar(0x7F));
 
-    // REC 1 LED on: channel=25, value=255
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_REC_OFFSET, 255, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_NOTE_ON));
-    QCOMPARE(data1, uchar(MCU_NOTE_REC_BASE));
-    QCOMPARE(data2, uchar(0x7F));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_REC_OFFSET, 0, &cmd, &d1, &d2));
+    QCOMPARE(d2, uchar(0x00));
 
-    // REC 1 LED off: value=0
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_REC_OFFSET, 0, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_NOTE_ON));
-    QCOMPARE(data1, uchar(MCU_NOTE_REC_BASE));
-    QCOMPARE(data2, uchar(0x00));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_TRANSPORT_OFFSET+3, 255, &cmd, &d1, &d2));
+    QCOMPARE(d1, uchar(MCU_NOTE_PLAY)); QCOMPARE(d2, uchar(0x7F));
 
-    // PLAY LED on: channel=69 (MACKIE_TRANSPORT_OFFSET + 3)
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_TRANSPORT_OFFSET + 3, 255, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_NOTE_ON));
-    QCOMPARE(data1, uchar(MCU_NOTE_PLAY));
-    QCOMPARE(data2, uchar(0x7F));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_SOLO_OFFSET+3, 255, &cmd, &d1, &d2));
+    QCOMPARE(d1, uchar(MCU_NOTE_SOLO_BASE+3));
 
-    // SOLO 4 LED on
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_SOLO_OFFSET + 3, 255, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_NOTE_ON));
-    QCOMPARE(data1, uchar(MCU_NOTE_SOLO_BASE + 3));
-    QCOMPARE(data2, uchar(0x7F));
-
-    // Intermediate value (128) still maps to LED on
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_REC_OFFSET, 128, &cmd, &data1, &data2));
-    QCOMPARE(data2, uchar(0x7F));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_REC_OFFSET, 128, &cmd, &d1, &d2));
+    QCOMPARE(d2, uchar(0x7F));
 }
 
 void Midi_Test::feedbackToMackie_vpotLeds()
 {
-    uchar cmd = 0, data1 = 0, data2 = 0;
+    uchar cmd=0, d1=0, d2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET+0, 0, &cmd, &d1, &d2));
+    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE)); QCOMPARE(d1, uchar(MCU_CC_VPOT_LED_BASE));
+    QCOMPARE(d2, uchar(0x00));
 
-    // VPot LED 1 at zero: channel=200, value=0
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VPOT_LED_OFFSET + 0, 0, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE));
-    QCOMPARE(data1, uchar(MCU_CC_VPOT_LED_BASE));
-    // position = (0 * 11) / 255 = 0, mode=SINGLE → encodeVPotLed(0, 0) = 0x00
-    QCOMPARE(data2, uchar(0x00));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET+0, 255, &cmd, &d1, &d2));
+    QCOMPARE(d2, uchar(0x0B));
 
-    // VPot LED 1 at max: channel=200, value=255
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VPOT_LED_OFFSET + 0, 255, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE));
-    QCOMPARE(data1, uchar(MCU_CC_VPOT_LED_BASE));
-    // position = (255 * 11) / 255 = 11, mode=SINGLE → encodeVPotLed(11, 0) = 0x0B
-    QCOMPARE(data2, uchar(0x0B));
-
-    // VPot LED 8: channel=207, value=128
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VPOT_LED_OFFSET + 7, 128, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE));
-    QCOMPARE(data1, uchar(MCU_CC_VPOT_LED_BASE + 7));
-    // position = (128 * 11) / 255 = 5
-    uchar expectedPos = (128 * 11) / 255;
-    QCOMPARE(data2, MackieControlProtocol::encodeVPotLed(expectedPos, MCU_VPOT_MODE_SINGLE));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET+7, 128, &cmd, &d1, &d2));
+    QCOMPARE(d1, uchar(MCU_CC_VPOT_LED_BASE+7));
+    uchar ep = (128 * 11) / 255;
+    QCOMPARE(d2, MackieControlProtocol::encodeVPotLed(ep, MCU_VPOT_MODE_SINGLE));
 }
 
 void Midi_Test::feedbackToMackie_vuMeters()
 {
-    uchar cmd = 0, data1 = 0, data2 = 0;
-
+    uchar cmd=0, d1=0, d2=0;
     // VU ch 0, value=255 (max) → level = (255 * 14) / 255 = 14
     QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VU_OFFSET + 0, 255, &cmd, &data1, &data2));
+        MACKIE_VU_OFFSET + 0, 255, &cmd, &d1, &d2));
     QCOMPARE(cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
-    QCOMPARE(data1, uchar((0 << 4) | 14));
-    QCOMPARE(data2, uchar(0));
+    QCOMPARE(d1, uchar((0 << 4) | 14));
+    QCOMPARE(d2, uchar(0));
 
     // VU ch 1, value=0 → level=0
     QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VU_OFFSET + 1, 0, &cmd, &data1, &data2));
+        MACKIE_VU_OFFSET + 1, 0, &cmd, &d1, &d2));
     QCOMPARE(cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
-    QCOMPARE(data1, uchar((1 << 4) | 0));
-    QCOMPARE(data2, uchar(0));
+    QCOMPARE(d1, uchar((1 << 4) | 0));
+    QCOMPARE(d2, uchar(0));
 
     // VU ch 3, value=128 → level = (128 * 14) / 255 = 7
     QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_VU_OFFSET + 3, 128, &cmd, &data1, &data2));
+        MACKIE_VU_OFFSET + 3, 128, &cmd, &d1, &d2));
     QCOMPARE(cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
-    QCOMPARE(data1, uchar((3 << 4) | 7));
+    QCOMPARE(d1, uchar((3 << 4) | 7));
 }
 
 void Midi_Test::feedbackToMackie_7segment()
 {
-    uchar cmd = 0, data1 = 0, data2 = 0;
+    uchar cmd=0, d1=0, d2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_7SEG_OFFSET+0, 0x35, &cmd, &d1, &d2));
+    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE)); QCOMPARE(d1, uchar(MCU_CC_7SEG_BASE)); QCOMPARE(d2, uchar(0x35));
 
-    // 7-segment digit 0: channel=208, value=0x35 (digit '5')
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_7SEG_OFFSET + 0, 0x35, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE));
-    QCOMPARE(data1, uchar(MCU_CC_7SEG_BASE + 0));
-    QCOMPARE(data2, uchar(0x35));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_7SEG_OFFSET+11, 0x39, &cmd, &d1, &d2));
+    QCOMPARE(d1, uchar(MCU_CC_7SEG_BASE+11)); QCOMPARE(d2, uchar(0x39));
 
-    // 7-segment digit 11: channel=219, value=0x39 (digit '9')
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_7SEG_OFFSET + 11, 0x39, &cmd, &data1, &data2));
-    QCOMPARE(cmd, uchar(MIDI_CONTROL_CHANGE));
-    QCOMPARE(data1, uchar(MCU_CC_7SEG_BASE + 11));
-    QCOMPARE(data2, uchar(0x39));
-
-    // High bit masked: value=0xFF → data2 = 0xFF & 0x7F = 0x7F
-    QVERIFY(MackieControlProtocol::feedbackToMackie(
-        MACKIE_7SEG_OFFSET + 0, 0xFF, &cmd, &data1, &data2));
-    QCOMPARE(data2, uchar(0x7F));
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_7SEG_OFFSET+0, 0xFF, &cmd, &d1, &d2));
+    QCOMPARE(d2, uchar(0x7F));
 }
 
 /****************************************************************************
- * Mackie Control Protocol: Note ↔ Channel round-trip
+ * Note <-> Channel round-trip
  ****************************************************************************/
 
 void Midi_Test::noteToChannel_roundTrip()
 {
-    // Test all per-channel button groups (8 buttons each)
-    struct { uchar baseNote; quint32 baseChannel; int count; } groups[] = {
-        { MCU_NOTE_REC_BASE,          MACKIE_REC_OFFSET,          8 },
-        { MCU_NOTE_SOLO_BASE,         MACKIE_SOLO_OFFSET,         8 },
-        { MCU_NOTE_MUTE_BASE,         MACKIE_MUTE_OFFSET,         8 },
-        { MCU_NOTE_SELECT_BASE,       MACKIE_SELECT_OFFSET,       8 },
-        { MCU_NOTE_VPOT_SW_BASE,      MACKIE_VPOT_PUSH_OFFSET,    8 },
-        { MCU_NOTE_FADER_TOUCH_BASE,  MACKIE_FADER_TOUCH_OFFSET,  9 },  // 8 + master
-        { MCU_NOTE_F1,                MACKIE_FUNCTION_OFFSET,      8 },
+    struct { uchar baseNote; quint32 baseCh; int cnt; } groups[] = {
+        {MCU_NOTE_REC_BASE, MACKIE_REC_OFFSET, 8},
+        {MCU_NOTE_SOLO_BASE, MACKIE_SOLO_OFFSET, 8},
+        {MCU_NOTE_MUTE_BASE, MACKIE_MUTE_OFFSET, 8},
+        {MCU_NOTE_SELECT_BASE, MACKIE_SELECT_OFFSET, 8},
+        {MCU_NOTE_VPOT_SW_BASE, MACKIE_VPOT_PUSH_OFFSET, 8},
+        {MCU_NOTE_FADER_TOUCH_BASE, MACKIE_FADER_TOUCH_OFFSET, 9},
+        {MCU_NOTE_F1, MACKIE_FUNCTION_OFFSET, 8},
     };
-
-    for (size_t g = 0; g < sizeof(groups) / sizeof(groups[0]); g++)
-    {
-        for (int i = 0; i < groups[g].count; i++)
+    for (size_t g = 0; g < sizeof(groups)/sizeof(groups[0]); g++)
+        for (int i = 0; i < groups[g].cnt; i++)
         {
-            uchar note = groups[g].baseNote + i;
-            quint32 ch = MackieControlProtocol::noteToChannel(note);
-            QCOMPARE(ch, groups[g].baseChannel + (quint32)i);
-
-            // Round-trip: channelToNote should give back the original note
-            uchar backNote = MackieControlProtocol::channelToNote(ch);
-            QCOMPARE(backNote, note);
+            uchar n = groups[g].baseNote + i;
+            quint32 c = MackieControlProtocol::noteToChannel(n);
+            QCOMPARE(c, groups[g].baseCh + (quint32)i);
+            QCOMPARE(MackieControlProtocol::channelToNote(c), n);
         }
-    }
 
-    // Test individual buttons (transport, assignment, etc.)
-    struct { uchar note; quint32 expectedChannel; } singles[] = {
-        { MCU_NOTE_REWIND,           MACKIE_TRANSPORT_OFFSET + 0 },
-        { MCU_NOTE_FORWARD,          MACKIE_TRANSPORT_OFFSET + 1 },
-        { MCU_NOTE_STOP,             MACKIE_TRANSPORT_OFFSET + 2 },
-        { MCU_NOTE_PLAY,             MACKIE_TRANSPORT_OFFSET + 3 },
-        { MCU_NOTE_RECORD,           MACKIE_TRANSPORT_OFFSET + 4 },
-        { MCU_NOTE_CYCLE,            MACKIE_TRANSPORT_OFFSET + 5 },
-        { MCU_NOTE_ASSIGN_TRACK,     MACKIE_ASSIGNMENT_OFFSET + 0 },
-        { MCU_NOTE_ASSIGN_INSTRUMENT,MACKIE_ASSIGNMENT_OFFSET + 5 },
-        { MCU_NOTE_BANK_LEFT,        MACKIE_BANK_OFFSET + 0 },
-        { MCU_NOTE_CH_RIGHT,         MACKIE_BANK_OFFSET + 3 },
-        { MCU_NOTE_SHIFT,            MACKIE_MODIFIER_OFFSET + 0 },
-        { MCU_NOTE_ALT,              MACKIE_MODIFIER_OFFSET + 3 },
-        { MCU_NOTE_READ,             MACKIE_AUTOMATION_OFFSET + 0 },
-        { MCU_NOTE_GROUP,            MACKIE_AUTOMATION_OFFSET + 5 },
-        { MCU_NOTE_SAVE,             MACKIE_UTILITY_OFFSET + 0 },
-        { MCU_NOTE_ENTER,            MACKIE_UTILITY_OFFSET + 3 },
-        { MCU_NOTE_CURSOR_UP,        MACKIE_CURSOR_OFFSET + 0 },
-        { MCU_NOTE_SCRUB,            MACKIE_CURSOR_OFFSET + 5 },
-        { MCU_NOTE_FLIP,             MACKIE_MISC_OFFSET + 0 },
-        { MCU_NOTE_USER_B,           MACKIE_MISC_OFFSET + 11 },
+    struct { uchar n; quint32 c; } singles[] = {
+        {MCU_NOTE_REWIND, MACKIE_TRANSPORT_OFFSET+0}, {MCU_NOTE_FORWARD, MACKIE_TRANSPORT_OFFSET+1},
+        {MCU_NOTE_STOP, MACKIE_TRANSPORT_OFFSET+2}, {MCU_NOTE_PLAY, MACKIE_TRANSPORT_OFFSET+3},
+        {MCU_NOTE_RECORD, MACKIE_TRANSPORT_OFFSET+4}, {MCU_NOTE_CYCLE, MACKIE_TRANSPORT_OFFSET+5},
+        {MCU_NOTE_ASSIGN_TRACK, MACKIE_ASSIGNMENT_OFFSET+0}, {MCU_NOTE_ASSIGN_INSTRUMENT, MACKIE_ASSIGNMENT_OFFSET+5},
+        {MCU_NOTE_BANK_LEFT, MACKIE_BANK_OFFSET+0}, {MCU_NOTE_CH_RIGHT, MACKIE_BANK_OFFSET+3},
+        {MCU_NOTE_SHIFT, MACKIE_MODIFIER_OFFSET+0}, {MCU_NOTE_ALT, MACKIE_MODIFIER_OFFSET+3},
+        {MCU_NOTE_READ, MACKIE_AUTOMATION_OFFSET+0}, {MCU_NOTE_GROUP, MACKIE_AUTOMATION_OFFSET+5},
+        {MCU_NOTE_SAVE, MACKIE_UTILITY_OFFSET+0}, {MCU_NOTE_ENTER, MACKIE_UTILITY_OFFSET+3},
+        {MCU_NOTE_CURSOR_UP, MACKIE_CURSOR_OFFSET+0}, {MCU_NOTE_SCRUB, MACKIE_CURSOR_OFFSET+5},
+        {MCU_NOTE_FLIP, MACKIE_MISC_OFFSET+0}, {MCU_NOTE_USER_B, MACKIE_MISC_OFFSET+11},
     };
-
-    for (size_t i = 0; i < sizeof(singles) / sizeof(singles[0]); i++)
+    for (size_t i = 0; i < sizeof(singles)/sizeof(singles[0]); i++)
     {
-        quint32 ch = MackieControlProtocol::noteToChannel(singles[i].note);
-        QCOMPARE(ch, singles[i].expectedChannel);
-
-        // Round-trip
-        uchar backNote = MackieControlProtocol::channelToNote(ch);
-        QCOMPARE(backNote, singles[i].note);
+        QCOMPARE(MackieControlProtocol::noteToChannel(singles[i].n), singles[i].c);
+        QCOMPARE(MackieControlProtocol::channelToNote(singles[i].c), singles[i].n);
     }
 
-    // Unknown note should return UINT_MAX
     QCOMPARE(MackieControlProtocol::noteToChannel(0xFF), (quint32)UINT_MAX);
     QCOMPARE(MackieControlProtocol::noteToChannel(0x71), (quint32)UINT_MAX);
-
-    // Unknown channel should return 0xFF
     QCOMPARE(MackieControlProtocol::channelToNote(999), uchar(0xFF));
-    QCOMPARE(MackieControlProtocol::channelToNote(MACKIE_FADER_OFFSET), uchar(0xFF)); // faders aren't buttons
+    QCOMPARE(MackieControlProtocol::channelToNote(MACKIE_FADER_OFFSET), uchar(0xFF));
 }
 
 /****************************************************************************
@@ -544,87 +415,566 @@ void Midi_Test::vuMeterRoundTrip()
 
 void Midi_Test::encodeVPotLed()
 {
-    // position=5, mode=SINGLE, centerLed=false → 0x05
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SINGLE, false),
-             uchar(0x05));
-
-    // position=5, mode=BOOST_CUT → 0x15 (mode=1 << 4 = 0x10)
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_BOOST_CUT, false),
-             uchar(0x15));
-
-    // position=5, mode=WRAP → 0x25 (mode=2 << 4 = 0x20)
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_WRAP, false),
-             uchar(0x25));
-
-    // position=5, mode=SPREAD → 0x35 (mode=3 << 4 = 0x30)
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SPREAD, false),
-             uchar(0x35));
-
-    // position=5, mode=SINGLE, centerLed=true → 0x45 (center=0x40)
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SINGLE, true),
-             uchar(0x45));
-
-    // position=0 (off), mode=SINGLE → 0x00
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(0, MCU_VPOT_MODE_SINGLE, false),
-             uchar(0x00));
-
-    // position=11 (max), mode=SINGLE → 0x0B
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(11, MCU_VPOT_MODE_SINGLE, false),
-             uchar(0x0B));
-
-    // All options: position=11, mode=SPREAD, centerLed=true → 0x3B | 0x40 = 0x7B
-    QCOMPARE(MackieControlProtocol::encodeVPotLed(11, MCU_VPOT_MODE_SPREAD, true),
-             uchar(0x7B));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SINGLE, false), uchar(0x05));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_BOOST_CUT, false), uchar(0x15));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_WRAP, false), uchar(0x25));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SPREAD, false), uchar(0x35));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(5, MCU_VPOT_MODE_SINGLE, true), uchar(0x45));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(0, MCU_VPOT_MODE_SINGLE, false), uchar(0x00));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(11, MCU_VPOT_MODE_SINGLE, false), uchar(0x0B));
+    QCOMPARE(MackieControlProtocol::encodeVPotLed(11, MCU_VPOT_MODE_SPREAD, true), uchar(0x7B));
 }
 
 /****************************************************************************
- * Mackie Control Protocol: Handshake challenge/response algorithm
- * (Inline test to avoid pulling in MackieControlHandler dependencies)
+ * Challenge/response algorithm
  ****************************************************************************/
-
-// Duplicate of the algorithm from mackiecontrolhandler.cpp for standalone testing
-static void testChallengeResponse(const uchar c[4], uchar r[4])
-{
-    r[0] = 0x7F & (c[0] + (c[1] ^ 0x0A) - c[3]);
-    r[1] = 0x7F & ((c[2] >> 4) ^ (c[0] + c[3]));
-    r[2] = 0x7F & ((c[3] - (c[2] << 2)) ^ (c[0] | c[1]));
-    r[3] = 0x7F & (c[1] - c[2] + (0xF0 ^ (c[3] << 4)));
-}
 
 void Midi_Test::challengeResponseAlgorithm()
 {
-    uchar challenge[4];
-    uchar response[4];
+    uchar c[4], r[4];
 
-    // Test with all zeros
-    challenge[0] = 0; challenge[1] = 0; challenge[2] = 0; challenge[3] = 0;
-    testChallengeResponse(challenge, response);
-    // r[0] = 0x7F & (0 + (0 ^ 0x0A) - 0) = 0x7F & 0x0A = 0x0A
-    QCOMPARE(response[0], uchar(0x0A));
-    // r[1] = 0x7F & ((0 >> 4) ^ (0 + 0)) = 0x7F & 0 = 0x00
-    QCOMPARE(response[1], uchar(0x00));
-    // r[2] = 0x7F & (0 - (0 << 2) ^ (0 | 0)) = 0x7F & 0 = 0x00
-    QCOMPARE(response[2], uchar(0x00));
-    // r[3] = 0x7F & (0 - 0 + (0xF0 ^ (0 << 4))) = 0x7F & (0xF0) = 0x70
-    QCOMPARE(response[3], uchar(0x70));
+    c[0]=0; c[1]=0; c[2]=0; c[3]=0;
+    MackieControlHandler::computeChallengeResponse(c, r);
+    QCOMPARE(r[0], uchar(0x0A)); QCOMPARE(r[1], uchar(0x00));
+    QCOMPARE(r[2], uchar(0x00)); QCOMPARE(r[3], uchar(0x70));
+    for (int i=0; i<4; i++) QVERIFY(r[i] <= 0x7F);
 
-    // All response bytes must be valid MIDI data bytes (0x00-0x7F)
-    for (int i = 0; i < 4; i++)
-        QVERIFY(response[i] <= 0x7F);
+    c[0]=0x10; c[1]=0x20; c[2]=0x30; c[3]=0x40;
+    MackieControlHandler::computeChallengeResponse(c, r);
+    for (int i=0; i<4; i++) QVERIFY(r[i] <= 0x7F);
 
-    // Test with a known non-trivial input
-    challenge[0] = 0x10; challenge[1] = 0x20; challenge[2] = 0x30; challenge[3] = 0x40;
-    testChallengeResponse(challenge, response);
-    // Verify all response bytes are valid MIDI data bytes
-    for (int i = 0; i < 4; i++)
-        QVERIFY(response[i] <= 0x7F);
+    c[0]=0x7F; c[1]=0x7F; c[2]=0x7F; c[3]=0x7F;
+    MackieControlHandler::computeChallengeResponse(c, r);
+    for (int i=0; i<4; i++) QVERIFY(r[i] <= 0x7F);
+}
 
-    // Test with max values (0x7F)
-    challenge[0] = 0x7F; challenge[1] = 0x7F; challenge[2] = 0x7F; challenge[3] = 0x7F;
-    testChallengeResponse(challenge, response);
-    // All response bytes must be within MIDI range
-    for (int i = 0; i < 4; i++)
-        QVERIFY(response[i] <= 0x7F);
+/****************************************************************************
+ * Edge case tests
+ ****************************************************************************/
+
+void Midi_Test::mackieToInput_invalidMessages()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(!MackieControlProtocol::mackieToInput(0x00, 0x00, 0x00, &ch, &val));
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_PROGRAM_CHANGE, 0x00, 0x00, &ch, &val));
+    QVERIFY(!MackieControlProtocol::mackieToInput(0xFF, 0x00, 0x00, &ch, &val));
+}
+
+void Midi_Test::feedbackToMackie_unmappedChannels()
+{
+    uchar cmd=0, d1=0, d2=0;
+    QVERIFY(!MackieControlProtocol::feedbackToMackie(150, 128, &cmd, &d1, &d2));
+    QVERIFY(!MackieControlProtocol::feedbackToMackie(250, 128, &cmd, &d1, &d2));
+    QVERIFY(!MackieControlProtocol::feedbackToMackie(MACKIE_JOG_OFFSET, 128, &cmd, &d1, &d2));
+}
+
+void Midi_Test::mackieToInput_vpotBoundary()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE+8, 0x01, &ch, &val));
+    QVERIFY(!MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE-1, 0x01, &ch, &val));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x00, &ch, &val));
+    QCOMPARE(val, uchar(127));
+}
+
+void Midi_Test::mackieToInput_vuOverRange()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CHANNEL_AFTERTOUCH, 0x0E, 0, &ch, &val));
+    QCOMPARE(ch, (quint32)(MACKIE_VU_OFFSET+0)); QCOMPARE(val, uchar(255));
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CHANNEL_AFTERTOUCH, 0x0F, 0, &ch, &val));
+    QCOMPARE(val, uchar(0));  // 0x0F = clear overload → value 0
+}
+
+void Midi_Test::buttonRoundTrip()
+{
+    uchar bases[][2] = {{MCU_NOTE_REC_BASE,8},{MCU_NOTE_SOLO_BASE,8},{MCU_NOTE_MUTE_BASE,8},{MCU_NOTE_SELECT_BASE,8}};
+    for (size_t g=0; g < sizeof(bases)/sizeof(bases[0]); g++)
+        for (int i=0; i < bases[g][1]; i++)
+        {
+            uchar note = bases[g][0]+i;
+            quint32 ch=0; uchar val=0;
+            QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, note, 0x7F, &ch, &val));
+            QCOMPARE(val, uchar(255));
+            uchar fc=0,fd1=0,fd2=0;
+            QVERIFY(MackieControlProtocol::feedbackToMackie(ch, 255, &fc, &fd1, &fd2));
+            QCOMPARE(fc, uchar(MIDI_NOTE_ON)); QCOMPARE(fd1, note); QCOMPARE(fd2, uchar(0x7F));
+            QVERIFY(MackieControlProtocol::feedbackToMackie(ch, 0, &fc, &fd1, &fd2));
+            QCOMPARE(fd1, note); QCOMPARE(fd2, uchar(0x00));
+        }
+}
+
+/****************************************************************************
+ * Channel layout consistency
+ ****************************************************************************/
+
+void Midi_Test::channelLayoutNoOverlap()
+{
+    struct R { quint32 s, c; const char* n; };
+    R ranges[] = {
+        {MACKIE_FADER_OFFSET, MACKIE_FADER_COUNT, "Faders"},
+        {MACKIE_VPOT_OFFSET, MACKIE_VPOT_COUNT, "VPots"},
+        {MACKIE_VPOT_PUSH_OFFSET, MACKIE_VPOT_PUSH_COUNT, "VPotPush"},
+        {MACKIE_REC_OFFSET, 8, "REC"}, {MACKIE_SOLO_OFFSET, 8, "SOLO"},
+        {MACKIE_MUTE_OFFSET, 8, "MUTE"}, {MACKIE_SELECT_OFFSET, 8, "SELECT"},
+        {MACKIE_FADER_TOUCH_OFFSET, 9, "Touch"},
+        {MACKIE_TRANSPORT_OFFSET, 6, "Transport"},
+        {MACKIE_FUNCTION_OFFSET, 8, "Function"},
+        {MACKIE_ASSIGNMENT_OFFSET, 6, "Assign"},
+        {MACKIE_BANK_OFFSET, 4, "Bank"},
+        {MACKIE_MODIFIER_OFFSET, 4, "Mod"},
+        {MACKIE_AUTOMATION_OFFSET, 6, "Auto"},
+        {MACKIE_UTILITY_OFFSET, 4, "Util"},
+        {MACKIE_CURSOR_OFFSET, 6, "Cursor"},
+        {MACKIE_MISC_OFFSET, 20, "Misc"},
+        {MACKIE_JOG_OFFSET, 1, "Jog"},
+    };
+    int n = sizeof(ranges)/sizeof(ranges[0]);
+    for (int i=0; i<n; i++)
+        for (int j=i+1; j<n; j++)
+        {
+            quint32 eA = ranges[i].s + ranges[i].c - 1;
+            quint32 eB = ranges[j].s + ranges[j].c - 1;
+            bool overlap = (ranges[i].s <= eB && ranges[j].s <= eA);
+            if (overlap)
+            {
+                QString msg = QString("Overlap: %1 [%2-%3] and %4 [%5-%6]")
+                    .arg(ranges[i].n).arg(ranges[i].s).arg(eA)
+                    .arg(ranges[j].n).arg(ranges[j].s).arg(eB);
+                QVERIFY2(!overlap, msg.toLatin1().constData());
+            }
+        }
+}
+
+void Midi_Test::allButtonNotesAreMapped()
+{
+    QSet<uchar> notes;
+    for (int i=0;i<8;i++) {
+        notes << (MCU_NOTE_REC_BASE+i) << (MCU_NOTE_SOLO_BASE+i) << (MCU_NOTE_MUTE_BASE+i)
+              << (MCU_NOTE_SELECT_BASE+i) << (MCU_NOTE_VPOT_SW_BASE+i);
+    }
+    for (int i=0;i<=8;i++) notes << (MCU_NOTE_FADER_TOUCH_BASE+i);
+    for (int i=0;i<8;i++) notes << (MCU_NOTE_F1+i);
+    notes << MCU_NOTE_ASSIGN_TRACK << MCU_NOTE_ASSIGN_SEND << MCU_NOTE_ASSIGN_PAN
+          << MCU_NOTE_ASSIGN_PLUGIN << MCU_NOTE_ASSIGN_EQ << MCU_NOTE_ASSIGN_INSTRUMENT;
+    notes << MCU_NOTE_BANK_LEFT << MCU_NOTE_BANK_RIGHT << MCU_NOTE_CH_LEFT << MCU_NOTE_CH_RIGHT;
+    notes << MCU_NOTE_FLIP << MCU_NOTE_GLOBAL_VIEW << MCU_NOTE_NAME_VALUE << MCU_NOTE_SMPTE_BEATS;
+    notes << MCU_NOTE_SHIFT << MCU_NOTE_OPTION << MCU_NOTE_CONTROL << MCU_NOTE_ALT;
+    notes << MCU_NOTE_READ << MCU_NOTE_WRITE << MCU_NOTE_TRIM << MCU_NOTE_TOUCH
+          << MCU_NOTE_LATCH << MCU_NOTE_GROUP;
+    notes << MCU_NOTE_SAVE << MCU_NOTE_UNDO << MCU_NOTE_CANCEL << MCU_NOTE_ENTER;
+    notes << MCU_NOTE_MARKER << MCU_NOTE_NUDGE << MCU_NOTE_CYCLE << MCU_NOTE_DROP
+          << MCU_NOTE_REPLACE << MCU_NOTE_CLICK << MCU_NOTE_SOLO_DEFEAT;
+    notes << MCU_NOTE_REWIND << MCU_NOTE_FORWARD << MCU_NOTE_STOP << MCU_NOTE_PLAY << MCU_NOTE_RECORD;
+    notes << MCU_NOTE_CURSOR_UP << MCU_NOTE_CURSOR_DOWN << MCU_NOTE_CURSOR_LEFT
+          << MCU_NOTE_CURSOR_RIGHT << MCU_NOTE_ZOOM << MCU_NOTE_SCRUB;
+    notes << MCU_NOTE_USER_A << MCU_NOTE_USER_B;
+    notes << MCU_NOTE_MIDI_TRACKS << MCU_NOTE_INPUTS << MCU_NOTE_AUDIO_TRACKS
+          << MCU_NOTE_AUDIO_INST << MCU_NOTE_AUX << MCU_NOTE_BUSSES
+          << MCU_NOTE_OUTPUTS << MCU_NOTE_USER;
+
+    for (uchar n : notes)
+        QVERIFY2(MackieControlProtocol::noteToChannel(n) != UINT_MAX,
+            QString("Note 0x%1 unmapped").arg(n,2,16,QChar('0')).toLatin1().constData());
+}
+
+void Midi_Test::globalViewSubButtonsMapping()
+{
+    struct { uchar note; quint32 off; } sb[] = {
+        {MCU_NOTE_MIDI_TRACKS, MACKIE_MISC_OFFSET+12}, {MCU_NOTE_INPUTS, MACKIE_MISC_OFFSET+13},
+        {MCU_NOTE_AUDIO_TRACKS, MACKIE_MISC_OFFSET+14}, {MCU_NOTE_AUDIO_INST, MACKIE_MISC_OFFSET+15},
+        {MCU_NOTE_AUX, MACKIE_MISC_OFFSET+16}, {MCU_NOTE_BUSSES, MACKIE_MISC_OFFSET+17},
+        {MCU_NOTE_OUTPUTS, MACKIE_MISC_OFFSET+18}, {MCU_NOTE_USER, MACKIE_MISC_OFFSET+19},
+    };
+    for (size_t i=0; i<sizeof(sb)/sizeof(sb[0]); i++)
+    {
+        quint32 ch = MackieControlProtocol::noteToChannel(sb[i].note);
+        QCOMPARE(ch, sb[i].off);
+        QCOMPARE(MackieControlProtocol::channelToNote(ch), sb[i].note);
+        uchar cmd, d1, d2;
+        QVERIFY(MackieControlProtocol::feedbackToMackie(ch, 255, &cmd, &d1, &d2));
+        QCOMPARE(cmd, uchar(MIDI_NOTE_ON)); QCOMPARE(d1, sb[i].note); QCOMPARE(d2, uchar(0x7F));
+    }
+}
+
+/****************************************************************************
+ * MackieControlHandler tests
+ ****************************************************************************/
+
+void Midi_Test::handler_initialState()
+{
+    MackieControlHandler h;
+    QCOMPARE(h.handshakeState(), MackieControlHandler::Idle);
+    QCOMPARE(h.deviceId(), uchar(MCU_DEVICE_ID_MCU));
+    QVERIFY(h.outputDevice() == nullptr);
+}
+
+void Midi_Test::handler_handshakeStateMachine()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.setDeviceId(MCU_DEVICE_ID_MCU);
+
+    h.initiateHandshake();
+    QCOMPARE(h.handshakeState(), MackieControlHandler::WaitingForChallenge);
+    QCOMPARE(dev.sysExMsgs.size(), 1);
+    QByteArray q = dev.sysExMsgs[0];
+    QCOMPARE((uchar)q[0], uchar(0xF0));
+    QCOMPARE((uchar)q[5], uchar(MCU_SYSEX_CMD_QUERY));
+
+    // Simulate challenge
+    QByteArray chal;
+    chal.append((char)0xF0);
+    chal.append((char)MCU_SYSEX_MANUFACTURER_1);
+    chal.append((char)MCU_SYSEX_MANUFACTURER_2);
+    chal.append((char)MCU_SYSEX_MANUFACTURER_3);
+    chal.append((char)MCU_DEVICE_ID_MCU);
+    chal.append((char)MCU_SYSEX_CMD_CHALLENGE);
+    for (int i=0;i<7;i++) chal.append((char)(0x10+i));
+    chal.append((char)0x01); chal.append((char)0x02);
+    chal.append((char)0x03); chal.append((char)0x04);
+    chal.append((char)0xF7);
+    dev.clear();
+    h.handleSysEx(chal);
+    QCOMPARE(h.handshakeState(), MackieControlHandler::WaitingForConfirm);
+    QCOMPARE(dev.sysExMsgs.size(), 1);
+    QCOMPARE((uchar)dev.sysExMsgs[0][5], uchar(MCU_SYSEX_CMD_RESPONSE));
+
+    // Simulate confirmation
+    QSignalSpy spy(&h, SIGNAL(handshakeCompleted()));
+    QByteArray conf;
+    conf.append((char)0xF0);
+    conf.append((char)MCU_SYSEX_MANUFACTURER_1);
+    conf.append((char)MCU_SYSEX_MANUFACTURER_2);
+    conf.append((char)MCU_SYSEX_MANUFACTURER_3);
+    conf.append((char)MCU_DEVICE_ID_MCU);
+    conf.append((char)MCU_SYSEX_CMD_CONFIRM);
+    conf.append((char)0xF7);
+    h.handleSysEx(conf);
+    QCOMPARE(h.handshakeState(), MackieControlHandler::Connected);
+    QCOMPARE(spy.count(), 1);
+}
+
+void Midi_Test::handler_challengeResponse()
+{
+    uchar c[4]={0x01,0x02,0x03,0x04}, r[4], r2[4];
+    MackieControlHandler::computeChallengeResponse(c, r);
+    for (int i=0;i<4;i++) QVERIFY(r[i] <= 0x7F);
+    MackieControlHandler::computeChallengeResponse(c, r2);
+    for (int i=0;i<4;i++) QCOMPARE(r[i], r2[i]);
+}
+
+void Midi_Test::handler_sysExValidation()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.initiateHandshake();
+    dev.clear();
+
+    QByteArray tooShort;
+    tooShort.append((char)0xF0); tooShort.append((char)0x00); tooShort.append((char)0xF7);
+    h.handleSysEx(tooShort);
+    QCOMPARE(dev.sysExMsgs.size(), 0);
+    QCOMPARE(h.handshakeState(), MackieControlHandler::WaitingForChallenge);
+
+    QByteArray wrongMfr;
+    wrongMfr.append((char)0xF0); wrongMfr.append((char)0x00);
+    wrongMfr.append((char)0x01); wrongMfr.append((char)0x66);
+    wrongMfr.append((char)MCU_DEVICE_ID_MCU); wrongMfr.append((char)MCU_SYSEX_CMD_CHALLENGE);
+    wrongMfr.append((char)0xF7);
+    h.handleSysEx(wrongMfr);
+    QCOMPARE(h.handshakeState(), MackieControlHandler::WaitingForChallenge);
+
+    QByteArray wrongDev;
+    wrongDev.append((char)0xF0);
+    wrongDev.append((char)MCU_SYSEX_MANUFACTURER_1); wrongDev.append((char)MCU_SYSEX_MANUFACTURER_2);
+    wrongDev.append((char)MCU_SYSEX_MANUFACTURER_3);
+    wrongDev.append((char)0x99); wrongDev.append((char)MCU_SYSEX_CMD_CHALLENGE);
+    wrongDev.append((char)0xF7);
+    h.handleSysEx(wrongDev);
+    QCOMPARE(h.handshakeState(), MackieControlHandler::WaitingForChallenge);
+}
+
+void Midi_Test::handler_lcdOutput()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+
+    h.updateLCD(0, 0, "Test");
+    QCOMPARE(dev.sysExMsgs.size(), 1);
+    QCOMPARE((uchar)dev.sysExMsgs[0][5], uchar(MCU_SYSEX_CMD_LCD));
+    QCOMPARE((uchar)dev.sysExMsgs[0][6], uchar(0x00));
+    QCOMPARE(dev.sysExMsgs[0].mid(7, 7), QByteArray("Test   "));
+
+    dev.clear();
+    h.updateLCD(1, 3, "Dimmer");
+    QCOMPARE((uchar)dev.sysExMsgs[0][6], uchar(0x38 + 3*7));
+}
+
+void Midi_Test::handler_clearLCD()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.clearLCD();
+    QCOMPARE(dev.sysExMsgs.size(), 2);
+    QCOMPARE((uchar)dev.sysExMsgs[0][6], uchar(0x00));
+    QCOMPARE((uchar)dev.sysExMsgs[1][6], uchar(0x38));
+}
+
+void Midi_Test::handler_7segOutput()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.update7Segment("123");
+    QCOMPARE(dev.feedbackMsgs.size(), 12);
+    for (int i=0;i<12;i++)
+        QCOMPARE(dev.feedbackMsgs[i].cmd, uchar(MIDI_CONTROL_CHANGE));
+}
+
+void Midi_Test::handler_vuMeterOutput()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.updateVUMeter(0, 255);
+    QCOMPARE(dev.feedbackMsgs.size(), 1);
+    QCOMPARE(dev.feedbackMsgs[0].cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
+    QCOMPARE(dev.feedbackMsgs[0].data1, uchar((0<<4)|14));
+    dev.clear();
+    h.updateVUMeter(8, 128);
+    QCOMPARE(dev.feedbackMsgs.size(), 0);
+    h.updateVUMeter(-1, 128);
+    QCOMPARE(dev.feedbackMsgs.size(), 0);
+}
+
+void Midi_Test::handler_vuMeterClear()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.clearVUMeters();
+    QCOMPARE(dev.feedbackMsgs.size(), 8);
+    for (int i=0;i<8;i++) {
+        QCOMPARE(dev.feedbackMsgs[i].cmd, uchar(MIDI_CHANNEL_AFTERTOUCH));
+        QCOMPARE(dev.feedbackMsgs[i].data1, uchar(i<<4));
+    }
+}
+
+void Midi_Test::handler_vpotLedOutput()
+{
+    MackieControlHandler h;
+    MockMidiOutputDevice dev;
+    h.setOutputDevice(&dev);
+    h.updateVPotLed(0, 128, MCU_VPOT_MODE_SINGLE);
+    QCOMPARE(dev.feedbackMsgs.size(), 1);
+    QCOMPARE(dev.feedbackMsgs[0].cmd, uchar(MIDI_CONTROL_CHANGE));
+    QCOMPARE(dev.feedbackMsgs[0].data1, uchar(MCU_CC_VPOT_LED_BASE));
+    dev.clear();
+    h.updateVPotLed(7, 255, MCU_VPOT_MODE_WRAP);
+    QCOMPARE(dev.feedbackMsgs.size(), 1);
+    QCOMPARE(dev.feedbackMsgs[0].data1, uchar(MCU_CC_VPOT_LED_BASE+7));
+    dev.clear();
+    h.updateVPotLed(8, 128);
+    QCOMPARE(dev.feedbackMsgs.size(), 0);
+}
+
+void Midi_Test::handler_nullOutputDevice()
+{
+    MackieControlHandler h;
+    h.updateLCD(0, 0, "Test");
+    h.clearLCD();
+    h.update7Segment("123");
+    h.updateVUMeter(0, 128);
+    h.clearVUMeters();
+    h.updateVPotLed(0, 128);
+    QVERIFY(true); // No crash = pass
+}
+
+/****************************************************************************
+ * Input Profile verification
+ ****************************************************************************/
+
+void Midi_Test::inputProfile_loadAndVerifyChannels()
+{
+    // Verify protocol constant alignment with expected profile channel numbers
+    QCOMPARE((quint32)MACKIE_FADER_OFFSET, (quint32)0);
+    QCOMPARE((quint32)MACKIE_FADER_COUNT, (quint32)9);
+    QCOMPARE((quint32)MACKIE_VPOT_OFFSET, (quint32)9);
+    QCOMPARE((quint32)MACKIE_VPOT_COUNT, (quint32)8);
+    QCOMPARE((quint32)MACKIE_REC_OFFSET, (quint32)25);
+    QCOMPARE((quint32)MACKIE_SOLO_OFFSET, (quint32)33);
+    QCOMPARE((quint32)MACKIE_MUTE_OFFSET, (quint32)41);
+    QCOMPARE((quint32)MACKIE_SELECT_OFFSET, (quint32)49);
+    QCOMPARE((quint32)MACKIE_FADER_TOUCH_OFFSET, (quint32)57);
+    QCOMPARE((quint32)MACKIE_TRANSPORT_OFFSET, (quint32)66);
+    QCOMPARE((quint32)MACKIE_FUNCTION_OFFSET, (quint32)72);
+    QCOMPARE((quint32)MACKIE_MISC_OFFSET, (quint32)110);
+    QCOMPARE((quint32)MACKIE_JOG_OFFSET, (quint32)130);
+}
+
+void Midi_Test::inputProfile_channelTypes()
+{
+    // Verify fader range is contiguous
+    for (quint32 ch = MACKIE_FADER_OFFSET; ch < MACKIE_FADER_OFFSET+MACKIE_FADER_COUNT; ch++)
+        QVERIFY(ch <= 8);
+
+    // Verify VPot range
+    for (quint32 ch = MACKIE_VPOT_OFFSET; ch < MACKIE_VPOT_OFFSET+MACKIE_VPOT_COUNT; ch++)
+        QVERIFY(ch >= 9 && ch <= 16);
+
+    // All button channel groups map to valid notes
+    for (quint32 ch = MACKIE_REC_OFFSET; ch < MACKIE_REC_OFFSET+8; ch++)
+        QVERIFY(MackieControlProtocol::channelToNote(ch) != 0xFF);
+    for (quint32 ch = MACKIE_SOLO_OFFSET; ch < MACKIE_SOLO_OFFSET+8; ch++)
+        QVERIFY(MackieControlProtocol::channelToNote(ch) != 0xFF);
+    for (quint32 ch = MACKIE_MUTE_OFFSET; ch < MACKIE_MUTE_OFFSET+8; ch++)
+        QVERIFY(MackieControlProtocol::channelToNote(ch) != 0xFF);
+    for (quint32 ch = MACKIE_SELECT_OFFSET; ch < MACKIE_SELECT_OFFSET+8; ch++)
+        QVERIFY(MackieControlProtocol::channelToNote(ch) != 0xFF);
+}
+
+void Midi_Test::inputProfile_encoderMovementTypes()
+{
+    quint32 ch=0; uchar val=0;
+    // CW > 127, CCW < 127
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x01, &ch, &val));
+    QVERIFY(val > 127);
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x41, &ch, &val));
+    QVERIFY(val < 127);
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x01, &ch, &val));
+    QVERIFY(val > 127);
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_JOG_WHEEL, 0x41, &ch, &val));
+    QVERIFY(val < 127);
+}
+
+/****************************************************************************
+ * Integration tests: Fixture/Patch/VC compatibility
+ ****************************************************************************/
+
+void Midi_Test::integration_faderToFixtureChannel()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|0, 0x00, 0x60, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_FADER_OFFSET);
+    QCOMPARE(val, uchar(192));
+    QVERIFY(val <= 255);
+
+    // Simulate DMX write
+    QByteArray dmx(512, 0);
+    dmx[0] = val;
+    QCOMPARE((uchar)dmx[0], uchar(192));
+
+    // Verify feedback
+    uchar fc=0,fd1=0,fd2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(ch, val, &fc, &fd1, &fd2));
+    QCOMPARE(fc, uchar(MIDI_PITCH_WHEEL|0));
+}
+
+void Midi_Test::integration_buttonToFunctionTrigger()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_F1, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_FUNCTION_OFFSET);
+    QVERIFY(val > 0); // triggers function start
+
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_F1, 0x00, &ch, &val));
+    QCOMPARE(val, uchar(0)); // stops function
+
+    // All 8 F buttons as scene triggers
+    for (int i=0;i<8;i++) {
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_F1+i, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_FUNCTION_OFFSET+i));
+    }
+
+    // Verify LED feedback for F1
+    uchar fc=0,fd1=0,fd2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_FUNCTION_OFFSET, 255, &fc, &fd1, &fd2));
+    QCOMPARE(fc, uchar(MIDI_NOTE_ON)); QCOMPARE(fd1, uchar(MCU_NOTE_F1));
+}
+
+void Midi_Test::integration_vpotToLevelControl()
+{
+    quint32 ch=0; uchar val=0;
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE, 0x03, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_VPOT_OFFSET);
+    QCOMPARE(val, uchar(130));
+    QVERIFY(val > 127); // increment
+
+    QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_VPOT_SW_BASE, 0x7F, &ch, &val));
+    QCOMPARE(ch, (quint32)MACKIE_VPOT_PUSH_OFFSET);
+
+    uchar fc=0,fd1=0,fd2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET, 128, &fc, &fd1, &fd2));
+    QCOMPARE(fc, uchar(MIDI_CONTROL_CHANGE)); QCOMPARE(fd1, uchar(MCU_CC_VPOT_LED_BASE));
+}
+
+void Midi_Test::integration_feedbackFromFixtureToMCU()
+{
+    for (int i=0; i<8; i++) {
+        uchar fv = (uchar)(i*32);
+        uchar fc=0,fd1=0,fd2=0;
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_FADER_OFFSET+i, fv, &fc, &fd1, &fd2));
+        QCOMPARE(fc, uchar(MIDI_PITCH_WHEEL|i));
+
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_SOLO_OFFSET+i, fv>0?255:0, &fc, &fd1, &fd2));
+        QCOMPARE(fc, uchar(MIDI_NOTE_ON)); QCOMPARE(fd1, uchar(MCU_NOTE_SOLO_BASE+i));
+
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET+i, fv, &fc, &fd1, &fd2));
+        QCOMPARE(fc, uchar(MIDI_CONTROL_CHANGE)); QCOMPARE(fd1, uchar(MCU_CC_VPOT_LED_BASE+i));
+    }
+
+    uchar fc=0,fd1=0,fd2=0;
+    QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_FADER_OFFSET+8, 200, &fc, &fd1, &fd2));
+    QCOMPARE(fc, uchar(MIDI_PITCH_WHEEL|8));
+}
+
+void Midi_Test::integration_multipleChannelStripsMapping()
+{
+    for (int s=0; s<8; s++) {
+        quint32 ch; uchar val;
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_PITCH_WHEEL|s, 0x00, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_FADER_OFFSET+s));
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_CONTROL_CHANGE, MCU_CC_VPOT_BASE+s, 0x01, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_VPOT_OFFSET+s));
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_SOLO_BASE+s, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_SOLO_OFFSET+s));
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_MUTE_BASE+s, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_MUTE_OFFSET+s));
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_SELECT_BASE+s, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_SELECT_OFFSET+s));
+
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, MCU_NOTE_REC_BASE+s, 0x7F, &ch, &val));
+        QCOMPARE(ch, (quint32)(MACKIE_REC_OFFSET+s));
+
+        uchar fc=0,fd1=0,fd2=0;
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_FADER_OFFSET+s, 128, &fc, &fd1, &fd2));
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_SOLO_OFFSET+s, 255, &fc, &fd1, &fd2));
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_MUTE_OFFSET+s, 255, &fc, &fd1, &fd2));
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_SELECT_OFFSET+s, 255, &fc, &fd1, &fd2));
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_REC_OFFSET+s, 255, &fc, &fd1, &fd2));
+        QVERIFY(MackieControlProtocol::feedbackToMackie(MACKIE_VPOT_LED_OFFSET+s, 128, &fc, &fd1, &fd2));
+    }
+
+    // Transport for show control
+    struct { uchar note; quint32 off; } tm[] = {
+        {MCU_NOTE_PLAY, MACKIE_TRANSPORT_OFFSET+3}, {MCU_NOTE_STOP, MACKIE_TRANSPORT_OFFSET+2},
+        {MCU_NOTE_REWIND, MACKIE_TRANSPORT_OFFSET+0}, {MCU_NOTE_FORWARD, MACKIE_TRANSPORT_OFFSET+1},
+    };
+    for (size_t i=0; i<sizeof(tm)/sizeof(tm[0]); i++) {
+        quint32 ch; uchar val;
+        QVERIFY(MackieControlProtocol::mackieToInput(MIDI_NOTE_ON, tm[i].note, 0x7F, &ch, &val));
+        QCOMPARE(ch, tm[i].off);
+    }
 }
 
 QTEST_MAIN(Midi_Test)

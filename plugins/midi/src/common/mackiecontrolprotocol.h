@@ -176,7 +176,7 @@
 #define MACKIE_UTILITY_OFFSET           100 // Ch 100-103: Save/Undo/Cancel/Enter
 #define MACKIE_CURSOR_OFFSET            104 // Ch 104-109: Up/Down/Left/Right/Zoom/Scrub
 #define MACKIE_MISC_OFFSET              110 // Ch 110+: Other buttons
-#define MACKIE_JOG_OFFSET               124 // Ch 124: Jog wheel
+#define MACKIE_JOG_OFFSET               130 // Ch 130: Jog wheel
 
 // Feedback-only channels (output to controller)
 #define MACKIE_VPOT_LED_OFFSET          200 // Ch 200-207: VPot LED rings

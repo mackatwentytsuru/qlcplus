@@ -524,8 +524,41 @@
   <Name>User Switch B</Name>
   <Type>Button</Type>
  </Channel>
- <!-- Jog Wheel -->
+ <!-- Global View Sub-Buttons -->
+ <Channel Number="122">
+  <Name>MIDI Tracks</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="123">
+  <Name>Inputs</Name>
+  <Type>Button</Type>
+ </Channel>
  <Channel Number="124">
+  <Name>Audio Tracks</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="125">
+  <Name>Audio Inst</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="126">
+  <Name>Aux</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="127">
+  <Name>Busses</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="128">
+  <Name>Outputs</Name>
+  <Type>Button</Type>
+ </Channel>
+ <Channel Number="129">
+  <Name>User</Name>
+  <Type>Button</Type>
+ </Channel>
+ <!-- Jog Wheel -->
+ <Channel Number="130">
   <Name>Jog Wheel</Name>
   <Type>Encoder</Type>
   <Movement Sensitivity="1">Relative</Movement>

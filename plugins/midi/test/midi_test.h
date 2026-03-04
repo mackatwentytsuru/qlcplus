@@ -49,12 +49,49 @@ private slots:
     // Mackie Control Protocol: Round-trip tests
     void faderRoundTrip();
     void vuMeterRoundTrip();
+    void buttonRoundTrip();
 
     // Mackie Control Protocol: VPot LED encoding
     void encodeVPotLed();
 
     // Mackie Control Protocol: Handshake algorithm
     void challengeResponseAlgorithm();
+
+    // Mackie Control Protocol: Edge cases
+    void mackieToInput_invalidMessages();
+    void feedbackToMackie_unmappedChannels();
+    void mackieToInput_vpotBoundary();
+    void mackieToInput_vuOverRange();
+
+    // Mackie Control Protocol: Channel layout consistency
+    void channelLayoutNoOverlap();
+    void allButtonNotesAreMapped();
+    void globalViewSubButtonsMapping();
+
+    // MackieControlHandler: Tests
+    void handler_initialState();
+    void handler_handshakeStateMachine();
+    void handler_challengeResponse();
+    void handler_sysExValidation();
+    void handler_lcdOutput();
+    void handler_clearLCD();
+    void handler_7segOutput();
+    void handler_vuMeterOutput();
+    void handler_vuMeterClear();
+    void handler_vpotLedOutput();
+    void handler_nullOutputDevice();
+
+    // Input profile: QXI channel verification
+    void inputProfile_loadAndVerifyChannels();
+    void inputProfile_channelTypes();
+    void inputProfile_encoderMovementTypes();
+
+    // Integration: Fixture/Patch/VC compatibility
+    void integration_faderToFixtureChannel();
+    void integration_buttonToFunctionTrigger();
+    void integration_vpotToLevelControl();
+    void integration_feedbackFromFixtureToMCU();
+    void integration_multipleChannelStripsMapping();
 };
 
 #endif
