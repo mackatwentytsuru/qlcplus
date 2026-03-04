@@ -37,9 +37,34 @@
     <img src="https://custom-icon-badges.demolab.com/badge/-Store-green?style=for-the-badge&logo=home&logoColor=white" alt="Official store badge" /></a>
 </p>
 
-## Introduction
+## Introduction (Custom Fork)
 
-**QLC+** is powerful and user-friendly software to control lighting. QLC+ supports a [huge amount of hardware,](https://qlcplus.org/discover/compatibility) runs on Linux, Windows (10+), macOS (10.12+), and Raspberry Pi. Whether you're an experienced lighting professional or just getting started, QLC+ empowers you to take control of your lighting fixtures with ease. The primary goal of this project is to bring QLC+ to the level of available commercial software.
+> [!NOTE]
+> This is a **custom fork** of QLC+ maintained independently. Our deepest gratitude goes to Massimo Callegari and all the contributors of the original [Q Light Controller+](https://github.com/mcallegari/qlcplus) for creating such a powerful foundation.
+
+**QLC+ (Custom Edition)** builds upon the incredible open-source lighting control software to add specialized, bleeding-edge features tailored for modern workflows. 
+
+**Key additions in this fork:**
+1. **Behringer X-Touch MCU Integration**: Includes dedicated input profiles (`Behringer-X-Touch-Extender.qxi`) and MCU SysEx protocol enhancements to seamlessly use the Behringer X-TOUCH series.
+2. **AI Control (MCP Server)**: Ships with a companion Model Context Protocol (MCP) Python server, allowing AI assistants (like Claude) to directly control physical mixers and virtual faders.
+
+### 🤖 AI Integration (MCP Server)
+
+To bridge the gap between AI tools and physical hardware, this fork includes an MCP Server (`mcu-mcp-server`).
+The server is distributed as a standard Python package.
+
+**How to run the MCP Server with Claude Desktop:**
+Ensure you have `uvx` (or `pip`) installed, then add this to your `claude_desktop_config.json`:
+
+```json
+"mcpServers": {
+  "qlc-mcu": {
+    "command": "uvx",
+    "args": ["mcu-mcp-server"]
+  }
+}
+```
+*Note: The Python MCP server source code is located in `plugins/midi/mcp-server`.*
 
 ### Supported protocols
 
@@ -57,14 +82,13 @@
 [![YouTube](https://img.shields.io/badge/YouTube-%23FF0000.svg?style=flat-square&logo=YouTube)](https://www.youtube.com/watch?v=I9bccwcYQpM&list=PLHT-wIriuitDiW4A9oKSDr__Z_jcmMVdi) 
 [![Facebook](https://img.shields.io/badge/Facebook-%231877F2.svg?style=flat-square&logo=Facebook)](https://www.facebook.com/qlcplus)
 
-## Support & bug reports
+## Support & Bug Reports
 
-We have a dedicated page to help you find support, please check out [SUPPORT.md](SUPPORT.md). To learn about a specific feature of QLC+, take a look at the [official documentation](https://docs.qlcplus.org/). To give feedback, submit new fixtures and get new ideas, go to the [forum](https://www.qlcplus.org/forum/index.php)
+This is a personal fork. If you encounter bugs specifically related to the MCP Server or the X-Touch profiles, please open an issue in this repository, **not** upstream. 
+For general QLC+ features, refer to the [official documentation](https://docs.qlcplus.org/).
 
-### Help wanted
-Click the badge below to see the currently confirmed issues with QLC+. Perhaps you can find a solution?
-
-[![Help Wanted](https://img.shields.io/github/issues/mcallegari/qlcplus/issue%20confirmed?logo=github&color=red)](https://github.com/mcallegari/qlcplus/issues?q=is%3Aopen+is%3Aissue+label%3A%22issue+confirmed%22)
+### Downloading Pre-built Binaries
+You don't need to compile this yourself! Head over to the **Releases** tab on this GitHub repository to download the latest Windows installer or ZIP archive that includes these custom features out-of-the-box.
 
 
 ## Building QLC+
