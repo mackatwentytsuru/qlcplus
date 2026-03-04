@@ -54,13 +54,17 @@ AIツールと物理ハードウェアのギャップを埋めるため、この
 このサーバーは標準的なPythonパッケージとして配布されます。
 
 **Claude DesktopでMCPサーバーを実行する方法:**
-`uvx` (または `pip`) がインストールされていることを確認し、`claude_desktop_config.json` に以下を追加してください：
+`uvx` (または `pip`) がインストールされていることを確認し、`claude_desktop_config.json` にこのGitHubリポジトリから直接読み込む設定を追加してください：
 
 ```json
 "mcpServers": {
   "qlc-mcu": {
     "command": "uvx",
-    "args": ["mcu-mcp-server"]
+    "args": [
+      "--from",
+      "git+https://github.com/mackatwentytsuru/qlcplus.git#subdirectory=plugins/midi/mcp-server",
+      "mcu-mcp"
+    ]
   }
 }
 ```
@@ -88,7 +92,8 @@ AIツールと物理ハードウェアのギャップを埋めるため、この
 QLC+の一般的な機能については、[公式ドキュメント](https://docs.qlcplus.org/) を参照してください。
 
 ### ビルド済みバイナリのダウンロード
-自分でコンパイルする必要はありません！このGitHubリポジトリの **Releases** タブにアクセスして、これらのカスタム機能を標準で含んだ最新のWindowsインストーラーまたはZIPアーカイブをダウンロードしてください。
+現在、このカスタム機能を含んだ最新のWindowsインストーラーやZIPアーカイブを **Releases** タブで公開する準備を進めています（※リポジトリ所有者によるビルド待ちです）。
+公開され次第、ご自身でコンパイルすることなくダウンロードしてすぐにお使いいただけるようになります。
 
 
 ## QLC+ のビルド

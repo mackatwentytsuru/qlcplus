@@ -4,14 +4,16 @@
 
 ## インストール
 
-QLC+本体とは別に配布するため、`pip` または `uvx` を使用してインストールします：
+## インストール
+
+PyPIにはまだ公開されていないため、GitHubから直接インストールするか、リポジトリをクローンしてローカルからインストールします：
 
 ```bash
-# uvxを使用する場合（Claude Desktopで推奨）
-uvx mcu-mcp-server
+# GitHubから直接インストールする場合（推奨）
+pip install git+https://github.com/mackatwentytsuru/qlcplus.git#subdirectory=plugins/midi/mcp-server
 
-# またはグローバルにインストール
-pip install mcu-mcp-server
+# Claude Desktopなどで uvx を使ってGitHubから直接実行する場合
+uvx --from git+https://github.com/mackatwentytsuru/qlcplus.git#subdirectory=plugins/midi/mcp-server mcu-mcp
 ```
 
 ## Claude Desktopでの実行方法
@@ -23,7 +25,11 @@ pip install mcu-mcp-server
   "mcpServers": {
     "qlc-mcu": {
       "command": "uvx",
-      "args": ["mcu-mcp-server"]
+      "args": [
+        "--from",
+        "git+https://github.com/mackatwentytsuru/qlcplus.git#subdirectory=plugins/midi/mcp-server",
+        "mcu-mcp"
+      ]
     }
   }
 }
