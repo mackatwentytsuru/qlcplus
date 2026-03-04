@@ -281,8 +281,8 @@ void MackieControlHandler::updateVUMeter(int channel, uchar level)
     if (m_outputDevice == nullptr || channel < 0 || channel > 7)
         return;
 
-    // Scale 0-255 to 0-12
-    uchar vuLevel = (level * 12) / 255;
+    // Scale 0-255 to 0-14 (MCU supports 15 levels, 0x0F = clear overload)
+    uchar vuLevel = (level * 14) / 255;
 
     // Channel Pressure: high nibble = channel, low nibble = level
     uchar data = ((uchar)channel << 4) | (vuLevel & 0x0F);
